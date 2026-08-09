@@ -1,0 +1,53 @@
+"""
+config.py — BOOT-TIME configuration only.
+
+Everything here is read once from the environment when the process starts.
+None of it can be changed while the bot is running — for anything an admin
+should be able to tweak live (force-sub channels, auto-delete timer, etc.)
+see plugins/helper/settings.py, which is the DB-backed runtime layer.
+"""
+import re
+import os
+
+id_pattern = re.compile(r"^-?\d+$")
+
+
+def _as_id_list(raw: str):
+    """Turn a space separated string of ids/usernames into a clean list."""
+    out = []
+    for item in raw.split():
+        item = item.strip()
+        if not item:
+            continue
+        out.append(int(item) if id_pattern.match(item) else item)
+    return out
+
+
+# ---- Telegram credentials -------------------------------------------------
+API_ID = int(os.environ.get("API_ID", "0"))
+API_HASH = os.environ.get("API_HASH", "")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+
+# ---- Database ---------------------------------------------------------------
+DB_URL = os.environ.get("DB_URL", "mongodb://localhost:27017")
+DB_NAME = os.environ.get("DB_NAME", "filestore_bot")
+
+# ---- Access control ---------------------------------------------------------
+# Users who can upload files, run /setting, /broadcast, /stats, /delete_link, etc.
+ADMINS = _as_id_list(os.environ.get("ADMINS", ""))
+
+# Private channel the bot backs every uploaded file up to.
+# The bot MUST be an admin there with post/delete rights.
+BACKUP_CHANNEL = int(os.environ.get("BACKUP_CHANNEL", "0"))
+
+# Optional channel the bot posts logs to (new users, new links, broadcasts...).
+# Set to 0 to disable.
+LOG_CHANNEL = int(os.environ.get("LOG_CHANNEL", "0"))
+
+# ---- Misc boot-time knobs ----------------------------------------------------
+PORT = int(os.environ.get("PORT", "8080"))
+START_PIC = os.environ.get("START_PIC", "")  # optional image shown on /start
+
+# Bot username cache (filled in at runtime in bot.py, exposed here so every
+# plugin can import it without an extra get_me() call).
+BOT_USERNAME = ""
