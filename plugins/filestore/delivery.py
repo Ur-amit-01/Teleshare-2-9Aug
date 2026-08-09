@@ -2,12 +2,14 @@
 delivery.py — delivers the files behind a link code to a user.
 
 Strategy:
-  1. Try one bulk forward_messages() call from the backup channel. Cheap and
-     fast, and Telegram keeps albums grouped automatically.
-  2. If that fails (message purged from the backup channel, protect_content
-     wants a clean copy, etc.) fall back to re-uploading each item from its
-     stored file_id — grouping consecutive items that share a media_group_id
-     back into albums via send_media_group.
+  1. Copy every item straight from the backup channel to the user via
+     copy_message / copy_media_group. This delivers a clean message with no
+     "Forwarded from" tag, and albums are copied as a single grouped unit so
+     they arrive exactly as they were sent.
+  2. If a copy fails (message purged from the backup channel, etc.) fall
+     back to re-uploading each item from its stored file_id — grouping
+     consecutive items that share a media_group_id back into albums via
+     send_media_group.
 """
 import logging
 
@@ -36,6 +38,27 @@ def _group_by_album(entries: list) -> list:
     if current:
         groups.append(current)
     return groups
+
+
+async def _deliver_by_copy(client, user_id: int, entries: list, protect_content: bool) -> list:
+    """Copy every group straight from the backup channel — no forward tag,
+    albums stay grouped."""
+    sent = []
+    for group in _group_by_album(entries):
+        if len(group) > 1:
+            copied = await client.copy_media_group(
+                user_id, BACKUP_CHANNEL, group[0]["message_id"],
+                protect_content=protect_content,
+            )
+            sent.extend(copied)
+        else:
+            e = group[0]
+            msg = await client.copy_message(
+                user_id, BACKUP_CHANNEL, e["message_id"],
+                protect_content=protect_content,
+            )
+            sent.append(msg)
+    return sent
 
 
 async def _reupload(client, user_id: int, entries: list, protect_content: bool) -> list:
@@ -67,19 +90,10 @@ async def deliver(client, user_id: int, code: str) -> bool:
     if protect_content is None:
         protect_content = settings.get("protect_content")
 
-    sent_messages = []
     try:
-        message_ids = [e["message_id"] for e in entries]
-        sent_messages = await client.forward_messages(
-            chat_id=user_id,
-            from_chat_id=BACKUP_CHANNEL,
-            message_ids=message_ids,
-            protect_content=protect_content,
-        )
-        if not isinstance(sent_messages, list):
-            sent_messages = [sent_messages]
+        sent_messages = await _deliver_by_copy(client, user_id, entries, protect_content)
     except Exception as e:
-        logger.info(f"Forward failed for code={code}, falling back to re-upload: {e}")
+        logger.info(f"Copy failed for code={code}, falling back to re-upload: {e}")
         sent_messages = await _reupload(client, user_id, entries, protect_content)
 
     await db.increment_views(code)
