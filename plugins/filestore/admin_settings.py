@@ -1,11 +1,9 @@
 """
 admin_settings.py — /setting panel.
 
-Buttons trigger a "waiting for reply" state per-admin (AWAITING dict). For
-plain-value fields the next text message is parsed as the new value. For
-"rich" fields (currently just start_text) the next message — text, an image,
-an image with caption + buttons, even something forwarded from elsewhere —
-is captured exactly as sent via plugins.helper.template.
+Buttons trigger a "waiting for reply" state per-admin (AWAITING dict). The
+next text message the admin sends is parsed as the new value for whichever
+field they picked.
 """
 from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -13,22 +11,17 @@ from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 from plugins.helper.filters import admin_filter
 from plugins.helper.settings import settings
 from plugins.helper.time_parser import format_time, parse_time
-from plugins.helper.template import capture_template, describe_template
 
 # admin_id -> setting key currently being edited
 AWAITING: dict = {}
-
-# fields captured as a full message (text/media/caption/buttons) rather than a plain value
-RICH_FIELDS = {"start_text"}
 
 FIELD_LABELS = {
     "force_sub_channels": "Force-sub channels (space separated ids/usernames, or 'none')",
     "auto_delete_time": "Auto-delete timer (e.g. '10m', '1h', or '0' to disable)",
     "protect_content": "Protect content — reply 'on' or 'off'",
     "start_text": (
-        "Send the new start message — text, a photo/video/document with a caption, "
-        "buttons, or forward it from elsewhere. It'll be shown exactly as sent. "
-        "Use {mention} anywhere in the text/caption to insert the user's mention."
+        "Send the new start message text. Use {mention} anywhere in it "
+        "to insert the user's mention."
     ),
     "custom_caption": "Extra caption line appended to delivered files (or 'none')",
 }
@@ -38,7 +31,9 @@ def _panel_text() -> str:
     s = settings.all()
     fsub = ", ".join(str(c) for c in s["force_sub_channels"]) or "none"
     auto_del = format_time(s["auto_delete_time"]) if s["auto_delete_time"] else "disabled"
-    start_preview = describe_template(s["start_text"])
+    start_preview = s["start_text"]
+    if len(start_preview) > 60:
+        start_preview = start_preview[:57] + "..."
     return (
         "⚙️ <b>Bot settings</b>\n\n"
         f"• Force-sub channels: <code>{fsub}</code>\n"
@@ -60,7 +55,7 @@ def _panel_buttons() -> InlineKeyboardMarkup:
     ])
 
 
-@Client.on_message(filters.command("setting") & filters.private & admin_filter)
+@Client.on_message(filters.command("setting", "settings", "admin") & filters.private & admin_filter)
 async def setting_panel(client, message: Message):
     await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
 
@@ -84,12 +79,6 @@ def _has_pending_setting(_, __, message: Message) -> bool:
 async def setting_apply(client, message: Message):
     key = AWAITING.pop(message.from_user.id)
 
-    if key in RICH_FIELDS:
-        template = await capture_template(message)
-        await settings.set(key, template)
-        await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
-        return
-
     if not message.text:
         await message.reply_text("❌ That field needs plain text — please send text.")
         AWAITING[message.from_user.id] = key  # let them retry
@@ -108,6 +97,8 @@ async def setting_apply(client, message: Message):
             value = 0 if raw == "0" else parse_time(raw)
         elif key == "protect_content":
             value = raw.lower() in ("on", "true", "yes", "1")
+        elif key == "start_text":
+            value = raw
         elif key == "custom_caption":
             value = "" if raw.lower() == "none" else raw
         else:
@@ -120,4 +111,3 @@ async def setting_apply(client, message: Message):
 
     await settings.set(key, value)
     await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
-    
