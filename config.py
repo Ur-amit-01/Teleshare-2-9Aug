@@ -51,3 +51,23 @@ START_PIC = os.environ.get("START_PIC", "")  # optional image shown on /start
 # Bot username cache (filled in at runtime in bot.py, exposed here so every
 # plugin can import it without an extra get_me() call).
 BOT_USERNAME = ""
+
+
+def missing_required():
+    """
+    Returns a list of (name, hint) for required settings that are still
+    unset/empty. Called at every boot so misconfiguration is never silent.
+    """
+    problems = []
+    if not API_ID:
+        problems.append(("API_ID", "your api_id from my.telegram.org"))
+    if not API_HASH:
+        problems.append(("API_HASH", "your api_hash from my.telegram.org"))
+    if not BOT_TOKEN:
+        problems.append(("BOT_TOKEN", "the bot token from @BotFather"))
+    if not ADMINS:
+        problems.append(("ADMINS", "space-separated user id(s), e.g. '123456789'"))
+    if not BACKUP_CHANNEL:
+        problems.append(("BACKUP_CHANNEL", "the backup channel's id, e.g. '-1001234567890'"))
+    return problems
+    
