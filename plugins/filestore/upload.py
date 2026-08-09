@@ -18,6 +18,7 @@ Note: batch sessions and pending single-file confirmations live in memory
 only. A restart while one is open will lose it — finished links are
 unaffected since those are already in the database.
 """
+import asyncio
 import time
 
 from pyrogram import Client, filters
@@ -35,6 +36,20 @@ from plugins.filestore.linking import save_link, build_deep_link
 
 # admin_id -> list of collected entries while a batch session is open
 BATCH_SESSIONS: dict = {}
+
+# admin_id -> asyncio.Lock. Every file-copy-then-append happens under this
+# lock, and /done acquires it too, so /done can never finalize a batch while
+# a file that was sent moments earlier is still mid-copy to the backup
+# channel — otherwise that file would silently miss the link.
+_ADMIN_LOCKS: dict = {}
+
+
+def _lock_for(admin_id: int) -> asyncio.Lock:
+    lock = _ADMIN_LOCKS.get(admin_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _ADMIN_LOCKS[admin_id] = lock
+    return lock
 
 # admin_id -> list of entries awaiting a Yes/No link-generation confirmation
 PENDING_SINGLE: dict = {}
@@ -110,23 +125,29 @@ async def start_batch(client, message: Message):
 
 @Client.on_message(filters.command("cancel") & filters.private & admin_filter)
 async def cancel_batch(client, message: Message):
-    if BATCH_SESSIONS.pop(message.from_user.id, None) is None:
-        await message.reply_text("There's no batch in progress.")
-    else:
-        await message.reply_text("🗑 Batch discarded.")
+    admin_id = message.from_user.id
+    async with _lock_for(admin_id):
+        if BATCH_SESSIONS.pop(admin_id, None) is None:
+            await message.reply_text("There's no batch in progress.")
+        else:
+            await message.reply_text("🗑 Batch discarded.")
 
 
 @Client.on_message(filters.command("done") & filters.private & admin_filter)
 async def finish_batch(client, message: Message):
-    entries = BATCH_SESSIONS.pop(message.from_user.id, None)
-    if entries is None:
-        await message.reply_text("There's no batch in progress. Start one with /batch.")
-        return
-    if not entries:
-        await message.reply_text("That batch was empty — nothing to link.")
-        return
+    admin_id = message.from_user.id
+    # Waits for any file that's still being copied to the backup channel
+    # right now to finish and get appended, before we look at the list.
+    async with _lock_for(admin_id):
+        entries = BATCH_SESSIONS.pop(admin_id, None)
+        if entries is None:
+            await message.reply_text("There's no batch in progress. Start one with /batch.")
+            return
+        if not entries:
+            await message.reply_text("That batch was empty — nothing to link.")
+            return
 
-    code = await save_link(message.from_user.id, entries, is_batch=True)
+    code = await save_link(admin_id, entries, is_batch=True)
     link = build_deep_link(code)
     await message.reply_text(
         f"✅ <b>Batch link ready</b> ({len(entries)} file(s))\n\n<code>{link}</code>"
@@ -155,14 +176,18 @@ async def handle_admin_media(client, message: Message):
             return
         entries = [entry]
 
-    if admin_id in BATCH_SESSIONS:
-        BATCH_SESSIONS[admin_id].extend(entries)
-        # Keep it quiet — one message per file would get spammy for big batches.
-        try:
-            await message.react(emoji="👍")
-        except Exception:
-            pass
-        return
+    # Held for the append below, so /done can't pop the session mid-write —
+    # otherwise a file that's still being copied here could silently miss
+    # the batch even though it lands in the backup channel a moment later.
+    async with _lock_for(admin_id):
+        if admin_id in BATCH_SESSIONS:
+            BATCH_SESSIONS[admin_id].extend(entries)
+            # Keep it quiet — one message per file would get spammy for big batches.
+            try:
+                await message.react(emoji="👍")
+            except Exception:
+                pass
+            return
 
     # Direct mode — hold the entries and ask for confirmation before linking.
     PENDING_SINGLE[admin_id] = entries
