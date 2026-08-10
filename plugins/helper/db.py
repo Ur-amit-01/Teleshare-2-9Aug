@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 import motor.motor_asyncio
+from bson import ObjectId
+from bson.errors import InvalidId
 
 from config import DB_URL, DB_NAME
 
@@ -124,14 +126,31 @@ class Database:
         return {doc["_id"]: doc["value"] async for doc in self.settings.find({})}
 
     # ================= Pending auto-deletions ================= #
-    async def add_pending_deletion(self, doc: Dict) -> str:
+    # BUGFIX: add_pending_deletion() used to return str(result.inserted_id),
+    # while the document's real "_id" field in Mongo is still an ObjectId.
+    # remove_pending_deletion() then did delete_one({"_id": <that string>}),
+    # which never matches an ObjectId — so completed auto-delete jobs were
+    # NEVER cleaned up from pending_deletions. On every restart,
+    # restore_pending_deletions() would reload every one of those stale
+    # "completed" jobs (their delete_at already in the past, so they'd try
+    # to re-delete messages that were already gone) alongside genuinely
+    # pending ones, and the collection would grow forever. We now keep the
+    # id as a real ObjectId end-to-end, and remove_pending_deletion()
+    # tolerates either an ObjectId or a string that looks like one.
+    async def add_pending_deletion(self, doc: Dict) -> ObjectId:
         result = await self.pending_deletions.insert_one(doc)
-        return str(result.inserted_id)
+        return result.inserted_id
 
     async def get_all_pending_deletions(self) -> List[Dict]:
         return [d async for d in self.pending_deletions.find({})]
 
     async def remove_pending_deletion(self, _id):
+        if not isinstance(_id, ObjectId):
+            try:
+                _id = ObjectId(str(_id))
+            except (InvalidId, TypeError):
+                logger.warning(f"remove_pending_deletion got a non-ObjectId id: {_id!r}")
+                return
         await self.pending_deletions.delete_one({"_id": _id})
 
 
