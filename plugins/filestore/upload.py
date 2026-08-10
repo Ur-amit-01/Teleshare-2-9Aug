@@ -33,6 +33,7 @@ import logging
 import time
 
 from pyrogram import Client, filters
+from pyrogram.errors import FloodWait
 from pyrogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
@@ -69,6 +70,15 @@ def _lock_for(admin_id: int) -> asyncio.Lock:
 
 # admin_id -> list of pending items awaiting a Yes/No link-generation confirmation
 PENDING_SINGLE: dict = {}
+
+# admin_id -> the "N file(s) received in batch" status Message we keep editing,
+# so progress updates don't spam one message per file.
+_BATCH_STATUS_MSG: dict = {}
+
+# Delay between successive copies into BACKUP_CHANNEL. Telegram enforces a
+# roughly 1-message/second limit per chat; firing copies back-to-back into
+# the same channel is exactly what trips FloodWait mid-batch.
+_COPY_SPACING_SECONDS = 0.4
 
 # media_group_id -> claimed_at timestamp. Telegram fires the handler once per
 # item in an album; we only want to process the album once, on whichever
@@ -121,23 +131,54 @@ def _group_pending(items: list) -> list:
     return groups
 
 
-async def _finalize_entries(client, items: list) -> list:
+async def _copy_with_flood_retry(coro_fn, *args, max_retries: int = 4, **kwargs):
+    """
+    Awaits coro_fn(*args, **kwargs), retrying on FloodWait instead of letting
+    it bubble up as a generic failure. Pyrogram already auto-sleeps for short
+    FloodWaits (below its sleep_threshold), but for a real batch the wait
+    time between successive copies into the same channel can stack up past
+    that threshold — this catches those explicitly rather than treating a
+    rate limit as "the source message was deleted".
+    """
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_fn(*args, **kwargs)
+        except FloodWait as e:
+            last_err = e
+            wait = e.value + 1
+            logger.warning(f"FloodWait: sleeping {wait}s (attempt {attempt + 1}/{max_retries})")
+            await asyncio.sleep(wait)
+    raise last_err
+
+
+async def _finalize_entries(client, items: list) -> tuple:
     """
     The ONLY place media is ever copied into BACKUP_CHANNEL. Runs once a
     link is actually about to be created (Yes / /done), never before.
-    Returns the entries ready to be handed to save_link().
+    Returns (entries, failures) — entries are ready for save_link(), and
+    failures is a list of (src_chat_id, src_message_id, error_str) for
+    anything that genuinely couldn't be copied, so callers can report the
+    real reason instead of guessing.
     """
     entries = []
-    for group in _group_pending(items):
+    failures = []
+    groups = _group_pending(items)
+    for i, group in enumerate(groups):
         src_chat_id = group[0]["src_chat_id"]
         src_message_id = group[0]["src_message_id"]
         try:
             if len(group) > 1:
-                copied = await client.copy_media_group(BACKUP_CHANNEL, src_chat_id, src_message_id)
+                copied = await _copy_with_flood_retry(
+                    client.copy_media_group, BACKUP_CHANNEL, src_chat_id, src_message_id
+                )
             else:
-                copied = [await client.copy_message(BACKUP_CHANNEL, src_chat_id, src_message_id)]
+                copied = [await _copy_with_flood_retry(
+                    client.copy_message, BACKUP_CHANNEL, src_chat_id, src_message_id
+                )]
         except Exception as e:
             logger.warning(f"Couldn't back up message {src_chat_id}/{src_message_id}: {e}")
+            failures.append((src_chat_id, src_message_id, str(e)))
             continue  # source message may have been deleted/edited meanwhile — skip it
 
         for cp in copied:
@@ -152,12 +193,35 @@ async def _finalize_entries(client, items: list) -> list:
                 "caption": caption,
                 "media_group_id": group[0]["media_group_id"],
             })
-    return entries
+
+        # Space out successive copies so we don't trigger the very FloodWait
+        # we're trying to avoid. No point sleeping after the last group.
+        if i < len(groups) - 1:
+            await asyncio.sleep(_COPY_SPACING_SECONDS)
+
+    return entries, failures
+
+
+async def _report_failures(client, failures: list, context: str):
+    """Best-effort: dump the real exception text to LOG_CHANNEL so failures
+    are actually diagnosable instead of living only in a log file nobody sees."""
+    if not failures or not LOG_CHANNEL:
+        return
+    lines = [f"⚠️ {context}: {len(failures)} item(s) failed to back up:"]
+    for src_chat_id, src_message_id, err in failures[:10]:
+        lines.append(f"• {src_chat_id}/{src_message_id} — {err}")
+    if len(failures) > 10:
+        lines.append(f"...and {len(failures) - 10} more.")
+    try:
+        await client.send_message(LOG_CHANNEL, "\n".join(lines))
+    except Exception:
+        pass
 
 
 @Client.on_message(filters.command("batch") & filters.private & admin_filter)
 async def start_batch(client, message: Message):
     BATCH_SESSIONS[message.from_user.id] = []
+    _BATCH_STATUS_MSG.pop(message.from_user.id, None)
     await message.reply_text(
         "📦 <b>Batch mode started.</b>\n"
         "Send me all the files you want in this link, then send /done.\n"
@@ -170,6 +234,7 @@ async def start_batch(client, message: Message):
 async def cancel_batch(client, message: Message):
     admin_id = message.from_user.id
     async with _lock_for(admin_id):
+        _BATCH_STATUS_MSG.pop(admin_id, None)
         if BATCH_SESSIONS.pop(admin_id, None) is None:
             await message.reply_text("There's no batch in progress.")
         else:
@@ -191,13 +256,24 @@ async def finish_batch(client, message: Message):
             return
 
     status = await message.reply_text("⏳ Saving files and generating your link...")
+    _BATCH_STATUS_MSG.pop(admin_id, None)
 
-    entries = await _finalize_entries(client, items)
+    entries, failures = await _finalize_entries(client, items)
+    await _report_failures(client, failures, f"Batch by {message.from_user.mention}")
     if not entries:
+        detail = failures[0][2] if failures else "unknown error"
+        note = " Check the log channel for details." if LOG_CHANNEL else f"\n\nReason: {detail}"
         await status.edit_text(
-            "❌ Couldn't back up any of those files (they may have been deleted). Please try the batch again."
+            f"❌ Couldn't back up any of those {len(items)} file(s) — this usually means Telegram "
+            f"rate-limited the backup channel mid-batch, not that the files were deleted. "
+            f"Try /batch again with fewer files, or wait a moment first.{note}"
         )
         return
+    if failures:
+        await status.edit_text(
+            f"⚠️ {len(failures)} of {len(items)} file(s) couldn't be backed up and were skipped "
+            f"(likely rate-limited). Generating a link for the {len(entries)} that succeeded..."
+        )
 
     code = await save_link(admin_id, entries, is_batch=True)
     link = build_deep_link(code)
@@ -232,9 +308,22 @@ async def handle_admin_media(client, message: Message):
     async with _lock_for(admin_id):
         if admin_id in BATCH_SESSIONS:
             BATCH_SESSIONS[admin_id].extend(items)
-            # Keep it quiet — one message per file would get spammy for big batches.
             try:
                 await message.react(emoji="👍")
+            except Exception:
+                pass
+
+            # One running counter message, edited in place, instead of a new
+            # message per file — stays quiet even for big batches.
+            count = len(BATCH_SESSIONS[admin_id])
+            label = "file" if count == 1 else "files"
+            text = f"📥 {count} {label} received in batch so far."
+            status_msg = _BATCH_STATUS_MSG.get(admin_id)
+            try:
+                if status_msg:
+                    await status_msg.edit_text(text)
+                else:
+                    _BATCH_STATUS_MSG[admin_id] = await message.reply_text(text)
             except Exception:
                 pass
             return
@@ -272,10 +361,13 @@ async def confirm_link(client, query: CallbackQuery):
     await query.answer()
     await query.message.edit_text("⏳ Saving file(s) and generating your link...")
 
-    entries = await _finalize_entries(client, items)
+    entries, failures = await _finalize_entries(client, items)
+    await _report_failures(client, failures, f"Single upload by {query.from_user.mention}")
     if not entries:
+        detail = failures[0][2] if failures else "unknown error"
+        note = " Check the log channel for details." if LOG_CHANNEL else f"\n\nReason: {detail}"
         await query.message.edit_text(
-            "❌ Couldn't back up that file (it may have been deleted). Please send it again."
+            f"❌ Couldn't back up that file.{note}"
         )
         return
 
@@ -288,4 +380,5 @@ async def confirm_link(client, query: CallbackQuery):
         await client.send_message(
             LOG_CHANNEL, f"📄 Link created by {query.from_user.mention}: {link}"
         )
-     
+
+ 
