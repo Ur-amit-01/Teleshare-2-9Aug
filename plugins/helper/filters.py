@@ -6,6 +6,8 @@ filters.py — the two checks that gate nearly every command:
 Both are meant to be called/used at the very top of a handler, before any
 other work happens.
 """
+import logging
+
 from pyrogram import filters
 from pyrogram.errors import UserNotParticipant
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -13,6 +15,8 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 from config import ADMINS
 from plugins.helper.db import db
 from plugins.helper.settings import settings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------- admin ---- #
 
@@ -54,8 +58,19 @@ async def get_missing_channels(client, user_id: int) -> list:
             if await db.has_pending_join_request(user_id, chat.id):
                 continue
             missing.append(channel)
-        except Exception:
-            # bot isn't admin there / channel unreachable — skip rather than block everyone
+        except Exception as e:
+            # BUGFIX: this used to be a silent `except Exception: continue`,
+            # which means if the bot isn't actually an admin in the
+            # configured force-sub channel (or the id/username is wrong),
+            # EVERY user would silently skip that channel's check — the
+            # force-sub requirement would appear completely disabled with no
+            # error anywhere. We still don't want to block every user for a
+            # misconfigured channel, but we now log it loudly so it's
+            # obvious *why* subscribe-gating isn't kicking in.
+            logger.warning(
+                f"Force-sub check failed for channel={channel!r} "
+                f"(bot likely isn't an admin there, or the id/username is wrong): {e}"
+            )
             continue
     return missing
 
@@ -87,3 +102,4 @@ async def ensure_subscribed(client, message: Message) -> bool:
         reply_markup=InlineKeyboardMarkup(buttons),
     )
     return False
+ 
