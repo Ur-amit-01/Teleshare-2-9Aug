@@ -20,6 +20,7 @@ FIELD_LABELS = {
     "protect_content": "Protect content — reply 'on' or 'off'",
     "start_text": "Start message text (use {mention} for the user's mention)",
     "custom_caption": "Extra caption line appended to delivered files (or 'none')",
+    "leave_message": "DM sent when a user leaves a force-sub channel (use {mention}, {chat_title}, or 'none' to disable)",
 }
 
 
@@ -32,7 +33,8 @@ def _panel_text() -> str:
         f"• Force-sub channels: <code>{fsub}</code>\n"
         f"• Auto-delete: <code>{auto_del}</code>\n"
         f"• Protect content: <code>{s['protect_content']}</code>\n"
-        f"• Custom caption: <code>{s['custom_caption'] or 'none'}</code>\n\n"
+        f"• Custom caption: <code>{s['custom_caption'] or 'none'}</code>\n"
+        f"• Leave message: <code>{'enabled' if s['leave_message'] else 'disabled'}</code>\n\n"
         "Tap a field below to change it."
     )
 
@@ -44,6 +46,7 @@ def _panel_buttons() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🛡 Protect content", callback_data="setting:protect_content")],
         [InlineKeyboardButton("📝 Start text", callback_data="setting:start_text")],
         [InlineKeyboardButton("💬 Custom caption", callback_data="setting:custom_caption")],
+        [InlineKeyboardButton("💔 Leave message", callback_data="setting:leave_message")],
     ])
 
 
@@ -88,7 +91,7 @@ async def setting_apply(client, message: Message):
             value = 0 if raw == "0" else parse_time(raw)
         elif key == "protect_content":
             value = raw.lower() in ("on", "true", "yes", "1")
-        elif key in ("start_text", "custom_caption"):
+        elif key in ("start_text", "custom_caption", "leave_message"):
             value = "" if raw.lower() == "none" else raw
         else:
             await message.reply_text("Unknown setting.")
@@ -100,3 +103,4 @@ async def setting_apply(client, message: Message):
 
     await settings.set(key, value)
     await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
+    
