@@ -7,17 +7,28 @@ Two flows, both admin-only:
     message came from. A link is only generated after the admin confirms
     via the Yes/No prompt.
   * Batch: /batch starts a session, every file/album sent after that is
-    remembered (still not copied anywhere) until /done, which produces one
-    link for everything (no per-item confirmation — /done is the
-    confirmation).
+    remembered (still not copied anywhere). Each new file updates a single
+    running counter message ("N file(s) received in batch so far") carrying
+    ✅ Yes / ❌ No buttons — tapping ✅ Yes produces one link for everything
+    (no per-item confirmation — that tap is the confirmation), tapping ❌ No
+    discards it. /done and /cancel still work as text-command equivalents
+    of those two buttons, for anyone who prefers typing.
 
 IMPORTANT — backup-channel timing:
 Media is copied into BACKUP_CHANNEL in exactly one place: `_finalize_entries()`,
 which runs only once a link is actually about to be created (on "✅ Yes", or
-on /done). Tapping "❌ No" or running /cancel discards everything with
+/done). Tapping "❌ No" or running /cancel discards everything with
 nothing to clean up in the backup channel, because nothing was ever sent
 there. This intentionally differs from copying-on-receipt: nothing should
 land in the backup channel until a shareable link is actually generated.
+
+IMPORTANT — ordering:
+Handlers for different incoming messages can run concurrently (an album's
+extra get_media_group() await can let a later, faster single-file message
+finish appending first). Telegram message IDs are monotonically increasing
+per chat, so BATCH_SESSIONS is re-sorted by src_message_id on every append —
+that's what keeps the saved order matching the order files were actually
+sent in, regardless of which async task happened to finish first.
 
 Albums (media groups) are always handled as a single unit — via
 get_media_group() while collecting, and copy_media_group() when finalizing —
@@ -218,15 +229,55 @@ async def _report_failures(client, failures: list, context: str):
         pass
 
 
+def _batch_controls(count: int) -> InlineKeyboardMarkup:
+    """The Yes/No-style controls attached to the running counter message,
+    replacing the need to type /done or /cancel."""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"✅ Yes, finish ({count})", callback_data="batchctl:done"),
+        InlineKeyboardButton("❌ No, cancel", callback_data="batchctl:cancel"),
+    ]])
+
+
+async def _finalize_and_report_batch(client, admin_id: int, items: list, status: Message, mention: str):
+    """Shared tail-end of the batch flow, used by both /done and the
+    ✅ Yes button so they behave identically."""
+    entries, failures = await _finalize_entries(client, items)
+    await _report_failures(client, failures, f"Batch by {mention}")
+    if not entries:
+        detail = failures[0][2] if failures else "unknown error"
+        note = " Check the log channel for details." if LOG_CHANNEL else f"\n\nReason: {detail}"
+        await status.edit_text(
+            f"❌ Couldn't back up any of those {len(items)} file(s) — this usually means Telegram "
+            f"rate-limited the backup channel mid-batch, not that the files were deleted. "
+            f"Try /batch again with fewer files, or wait a moment first.{note}"
+        )
+        return
+    if failures:
+        await status.edit_text(
+            f"⚠️ {len(failures)} of {len(items)} file(s) couldn't be backed up and were skipped "
+            f"(likely rate-limited). Generating a link for the {len(entries)} that succeeded..."
+        )
+
+    code = await save_link(admin_id, entries, is_batch=True)
+    link = build_deep_link(code)
+    await status.edit_text(
+        f"✅ <b>Batch link ready</b> ({len(entries)} file(s))\n\n<code>{link}</code>"
+    )
+    if LOG_CHANNEL:
+        await client.send_message(LOG_CHANNEL, f"📦 Batch link created by {mention}: {link}")
+
+
 @Client.on_message(filters.command("batch") & filters.private & admin_filter)
 async def start_batch(client, message: Message):
     BATCH_SESSIONS[message.from_user.id] = []
     _BATCH_STATUS_MSG.pop(message.from_user.id, None)
     await message.reply_text(
         "📦 <b>Batch mode started.</b>\n"
-        "Send me all the files you want in this link, then send /done.\n"
-        "Send /cancel to discard this batch.\n"
-        "Nothing is uploaded to storage until /done."
+        "Send me all the files you want in this link.\n"
+        "A counter will appear below with ✅ Yes / ❌ No buttons — tap "
+        "✅ Yes when you're done to generate the link, or ❌ No to discard "
+        "the batch.\n"
+        "Nothing is uploaded to storage until you tap ✅ Yes."
     )
 
 
@@ -257,33 +308,43 @@ async def finish_batch(client, message: Message):
 
     status = await message.reply_text("⏳ Saving files and generating your link...")
     _BATCH_STATUS_MSG.pop(admin_id, None)
+    await _finalize_and_report_batch(client, admin_id, items, status, message.from_user.mention)
 
-    entries, failures = await _finalize_entries(client, items)
-    await _report_failures(client, failures, f"Batch by {message.from_user.mention}")
-    if not entries:
-        detail = failures[0][2] if failures else "unknown error"
-        note = " Check the log channel for details." if LOG_CHANNEL else f"\n\nReason: {detail}"
-        await status.edit_text(
-            f"❌ Couldn't back up any of those {len(items)} file(s) — this usually means Telegram "
-            f"rate-limited the backup channel mid-batch, not that the files were deleted. "
-            f"Try /batch again with fewer files, or wait a moment first.{note}"
+
+@Client.on_callback_query(filters.regex(r"^batchctl:") & admin_filter)
+async def batch_controls(client, query: CallbackQuery):
+    admin_id = query.from_user.id
+    decision = query.data.split(":", 1)[1]
+
+    async with _lock_for(admin_id):
+        items = BATCH_SESSIONS.pop(admin_id, None)
+        _BATCH_STATUS_MSG.pop(admin_id, None)
+
+    if items is None:
+        await query.answer("That batch already finished or expired.", show_alert=True)
+        return
+
+    if decision == "cancel":
+        await query.answer()
+        await query.message.edit_text(
+            "🗑 Batch discarded — nothing was ever stored.", reply_markup=None
         )
         return
-    if failures:
-        await status.edit_text(
-            f"⚠️ {len(failures)} of {len(items)} file(s) couldn't be backed up and were skipped "
-            f"(likely rate-limited). Generating a link for the {len(entries)} that succeeded..."
-        )
 
-    code = await save_link(admin_id, entries, is_batch=True)
-    link = build_deep_link(code)
-    await status.edit_text(
-        f"✅ <b>Batch link ready</b> ({len(entries)} file(s))\n\n<code>{link}</code>"
-    )
-    if LOG_CHANNEL:
-        await client.send_message(
-            LOG_CHANNEL, f"📦 Batch link created by {message.from_user.mention}: {link}"
+    if not items:
+        await query.answer()
+        await query.message.edit_text(
+            "That batch was empty — nothing to link.", reply_markup=None
         )
+        return
+
+    await query.answer()
+    await query.message.edit_text(
+        "⏳ Saving files and generating your link...", reply_markup=None
+    )
+    await _finalize_and_report_batch(
+        client, admin_id, items, query.message, query.from_user.mention
+    )
 
 
 @Client.on_message(filters.private & admin_filter & MEDIA_FILTER)
@@ -308,22 +369,31 @@ async def handle_admin_media(client, message: Message):
     async with _lock_for(admin_id):
         if admin_id in BATCH_SESSIONS:
             BATCH_SESSIONS[admin_id].extend(items)
+            # Handlers for different messages can run concurrently (e.g. an
+            # album's get_media_group() await lets a later, faster single-file
+            # message finish appending first). message.id is monotonically
+            # increasing per chat, so re-sorting on every append guarantees
+            # the stored order always matches the order messages were
+            # actually sent in, regardless of which handler finished first.
+            BATCH_SESSIONS[admin_id].sort(key=lambda it: it["src_message_id"])
             try:
                 await message.react(emoji="👍")
             except Exception:
                 pass
 
             # One running counter message, edited in place, instead of a new
-            # message per file — stays quiet even for big batches.
+            # message per file — stays quiet even for big batches. Carries
+            # the ✅ Yes / ❌ No controls so /done and /cancel aren't required.
             count = len(BATCH_SESSIONS[admin_id])
             label = "file" if count == 1 else "files"
             text = f"📥 {count} {label} received in batch so far."
+            markup = _batch_controls(count)
             status_msg = _BATCH_STATUS_MSG.get(admin_id)
             try:
                 if status_msg:
-                    await status_msg.edit_text(text)
+                    await status_msg.edit_text(text, reply_markup=markup)
                 else:
-                    _BATCH_STATUS_MSG[admin_id] = await message.reply_text(text)
+                    _BATCH_STATUS_MSG[admin_id] = await message.reply_text(text, reply_markup=markup)
             except Exception:
                 pass
             return
@@ -380,5 +450,6 @@ async def confirm_link(client, query: CallbackQuery):
         await client.send_message(
             LOG_CHANNEL, f"📄 Link created by {query.from_user.mention}: {link}"
         )
+
 
  
