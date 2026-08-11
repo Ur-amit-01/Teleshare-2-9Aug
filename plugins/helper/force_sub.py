@@ -11,12 +11,16 @@ Contains:
   * track_join_request   -> records "request to join" submissions so
                              ensure_subscribed can treat them as satisfied
                              for private/request-only channels
+  * handle_channel_leave -> fires the moment a user leaves/is removed from
+                             a force-sub channel, DMing them a "come back"
+                             message with a rejoin button
 """
 import logging
 
 from pyrogram import Client
+from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import UserNotParticipant
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import ChatMemberUpdated, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from plugins.helper.db import db
 from plugins.helper.settings import settings
@@ -105,4 +109,68 @@ async def track_join_request(client, chat_join_request):
     chat_id = chat_join_request.chat.id
     if chat_id in channel_ids or chat_join_request.chat.username in settings.get("force_sub_channels"):
         await db.record_join_request(chat_join_request.from_user.id, chat_id)
-      
+
+
+# ------------------------------------------------------------- on-leave ---- #
+
+# Statuses that count as "was actually in the channel".
+_WAS_MEMBER = {ChatMemberStatus.MEMBER, ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER}
+# Statuses that count as "isn't anymore" — covers both leaving on their own
+# and being kicked/banned.
+_NOW_GONE = {ChatMemberStatus.LEFT, ChatMemberStatus.BANNED}
+
+
+def _is_force_sub_channel(chat) -> bool:
+    configured = settings.get("force_sub_channels")
+    return chat.id in configured or (chat.username and chat.username in configured)
+
+
+@Client.on_chat_member_updated()
+async def handle_channel_leave(client, update: ChatMemberUpdated):
+    """
+    Fires on every membership change in every chat the bot administers.
+    We only care about: (a) it's a configured force-sub channel, and
+    (b) the user went from "in" to "out" (left, kicked, or banned).
+
+    NOTE: Telegram only sends these updates for chats where the bot is an
+    admin — which force-sub channels already require, so no extra setup
+    is needed for this to start working.
+    """
+    if not _is_force_sub_channel(update.chat):
+        return
+
+    old_status = update.old_chat_member.status if update.old_chat_member else None
+    new_status = update.new_chat_member.status if update.new_chat_member else None
+    if old_status not in _WAS_MEMBER or new_status not in _NOW_GONE:
+        return
+
+    user = (update.new_chat_member and update.new_chat_member.user) or \
+           (update.old_chat_member and update.old_chat_member.user)
+    if not user or user.is_bot:
+        return
+
+    # Their old join-request record (if any) is now stale — clear it so a
+    # future re-join via "request to join" is tracked fresh.
+    await db.clear_join_request(user.id, update.chat.id)
+
+    message_template = settings.get("leave_message")
+    if not message_template:
+        return  # admin disabled this feature via /setting
+
+    try:
+        button = await _channel_join_button(client, update.chat.id)
+    except Exception as e:
+        logger.warning(f"Couldn't build rejoin button for {update.chat.id}: {e}")
+        return
+
+    try:
+        await client.send_message(
+            user.id,
+            message_template.format(chat_title=update.chat.title, mention=user.mention),
+            reply_markup=InlineKeyboardMarkup([[button]]),
+        )
+    except Exception as e:
+        # Most common cause: user has never started the bot in DM, so
+        # Telegram won't let the bot message them first.
+        logger.info(f"Couldn't send leave-message to user {user.id}: {e}")
+     
