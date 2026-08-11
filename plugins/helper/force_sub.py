@@ -1,105 +1,108 @@
 """
-admin_settings.py — /setting panel.
+force_sub.py — everything related to the force-subscribe gate lives here,
+isolated from filters.py, so that if force-sub misbehaves (wrong channel id,
+bot not admin in the channel, buttons not showing, "request to join" not
+being recognized, etc.) there's exactly one file to open.
 
-Buttons trigger a "waiting for reply" state per-admin (AWAITING dict); the
-next plain text message that admin sends is captured as the new value.
+Contains:
+  * _channel_join_button -> builds the "➕ Join X" button for one channel
+  * get_missing_channels -> which force-sub channels a user hasn't joined
+  * ensure_subscribed    -> the gate called at the top of /start
+  * track_join_request   -> records "request to join" submissions so
+                             ensure_subscribed can treat them as satisfied
+                             for private/request-only channels
 """
-from pyrogram import Client, filters
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+import logging
 
-from plugins.helper.filters import admin_filter
+from pyrogram import Client
+from pyrogram.errors import UserNotParticipant
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+
+from plugins.helper.db import db
 from plugins.helper.settings import settings
-from plugins.helper.time_parser import format_time, parse_time
+from plugins.helper.filters import is_admin
 
-# admin_id -> setting key currently being edited
-AWAITING: dict = {}
-
-FIELD_LABELS = {
-    "force_sub_channels": "Force-sub channels (space separated ids/usernames, or 'none')",
-    "auto_delete_time": "Auto-delete timer (e.g. '10m', '1h', or '0' to disable)",
-    "protect_content": "Protect content — reply 'on' or 'off'",
-    "start_text": "Start message text (use {mention} for the user's mention)",
-    "custom_caption": "Extra caption line appended to delivered files (or 'none')",
-    "leave_message": "DM sent when a user leaves a force-sub channel (use {mention}, {chat_title}, or 'none' to disable)",
-}
+logger = logging.getLogger(__name__)
 
 
-def _panel_text() -> str:
-    s = settings.all()
-    fsub = ", ".join(str(c) for c in s["force_sub_channels"]) or "none"
-    auto_del = format_time(s["auto_delete_time"]) if s["auto_delete_time"] else "disabled"
-    return (
-        "⚙️ <b>Bot settings</b>\n\n"
-        f"• Force-sub channels: <code>{fsub}</code>\n"
-        f"• Auto-delete: <code>{auto_del}</code>\n"
-        f"• Protect content: <code>{s['protect_content']}</code>\n"
-        f"• Custom caption: <code>{s['custom_caption'] or 'none'}</code>\n"
-        f"• Leave message: <code>{'enabled' if s['leave_message'] else 'disabled'}</code>\n\n"
-        "Tap a field below to change it."
+async def _channel_join_button(client, channel) -> InlineKeyboardButton:
+    chat = await client.get_chat(channel)
+    if chat.username:
+        url = f"https://t.me/{chat.username}"
+    else:
+        url = chat.invite_link or (await client.export_chat_invite_link(chat.id))
+    return InlineKeyboardButton(f"➕ Join {chat.title}", url=url)
+
+
+async def get_missing_channels(client, user_id: int) -> list:
+    """Returns the list of force-sub channels this user hasn't joined/requested."""
+    missing = []
+    for channel in settings.get("force_sub_channels"):
+        try:
+            await client.get_chat_member(channel, user_id)
+            continue  # already a member
+        except UserNotParticipant:
+            # Not a member yet — but if they've sent a "request to join" for a
+            # private/request-only channel, treat that as satisfying the check.
+            chat = await client.get_chat(channel)
+            if await db.has_pending_join_request(user_id, chat.id):
+                continue
+            missing.append(channel)
+        except Exception as e:
+            # BUGFIX: this used to be a silent `except Exception: continue`,
+            # which means if the bot isn't actually an admin in the
+            # configured force-sub channel (or the id/username is wrong),
+            # EVERY user would silently skip that channel's check — the
+            # force-sub requirement would appear completely disabled with no
+            # error anywhere. We still don't want to block every user for a
+            # misconfigured channel, but we now log it loudly so it's
+            # obvious *why* subscribe-gating isn't kicking in.
+            logger.warning(
+                f"Force-sub check failed for channel={channel!r} "
+                f"(bot likely isn't an admin there, or the id/username is wrong): {e}"
+            )
+            continue
+    return missing
+
+
+async def ensure_subscribed(client, message: Message) -> bool:
+    """
+    Returns True if the user may proceed. If not, sends the "please join"
+    message with buttons (including a Try Again button that resumes any
+    deep-link payload) and returns False.
+    """
+    if not settings.get("force_sub_channels"):
+        return True
+    if message.from_user and is_admin(message.from_user.id):
+        return True
+
+    missing = await get_missing_channels(client, message.from_user.id)
+    if not missing:
+        return True
+
+    buttons = [[await _channel_join_button(client, ch)] for ch in missing]
+    payload = message.command[1] if len(message.command) > 1 else ""
+    from config import BOT_USERNAME
+    resume_url = f"https://t.me/{BOT_USERNAME}?start={payload}" if payload else f"https://t.me/{BOT_USERNAME}?start=start"
+    buttons.append([InlineKeyboardButton("🔄 Try Again", url=resume_url)])
+
+    await message.reply_text(
+        "🔒 <b>Join required</b>\n\n"
+        "Please join the channel(s) below, then tap <b>Try Again</b>.",
+        reply_markup=InlineKeyboardMarkup(buttons),
     )
+    return False
 
 
-def _panel_buttons() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📡 Force-sub channels", callback_data="setting:force_sub_channels")],
-        [InlineKeyboardButton("⏱ Auto-delete timer", callback_data="setting:auto_delete_time")],
-        [InlineKeyboardButton("🛡 Protect content", callback_data="setting:protect_content")],
-        [InlineKeyboardButton("📝 Start text", callback_data="setting:start_text")],
-        [InlineKeyboardButton("💬 Custom caption", callback_data="setting:custom_caption")],
-        [InlineKeyboardButton("💔 Leave message", callback_data="setting:leave_message")],
-    ])
-
-
-@Client.on_message(filters.command("setting") & filters.private & admin_filter)
-async def setting_panel(client, message: Message):
-    await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
-
-
-@Client.on_callback_query(filters.regex(r"^setting:") & admin_filter)
-async def setting_pick(client, query: CallbackQuery):
-    key = query.data.split(":", 1)[1]
-    AWAITING[query.from_user.id] = key
-    await query.answer()
-    await query.message.reply_text(
-        f"✏️ Send the new value.\n<i>{FIELD_LABELS[key]}</i>"
-    )
-
-
-def _has_pending_setting(_, __, message: Message) -> bool:
-    if not message.from_user or message.from_user.id not in AWAITING:
-        return False
-    # let ordinary commands (e.g. /cancel, /batch) through untouched
-    return not (message.text or "").startswith("/")
-
-
-@Client.on_message(
-    filters.private & filters.text & admin_filter & filters.create(_has_pending_setting)
-)
-async def setting_apply(client, message: Message):
-    key = AWAITING.pop(message.from_user.id)
-    raw = message.text.strip()
-
-    try:
-        if key == "force_sub_channels":
-            if raw.lower() == "none":
-                value = []
-            else:
-                value = []
-                for tok in raw.split():
-                    value.append(int(tok) if tok.lstrip("-").isdigit() else tok.lstrip("@"))
-        elif key == "auto_delete_time":
-            value = 0 if raw == "0" else parse_time(raw)
-        elif key == "protect_content":
-            value = raw.lower() in ("on", "true", "yes", "1")
-        elif key in ("start_text", "custom_caption", "leave_message"):
-            value = "" if raw.lower() == "none" else raw
-        else:
-            await message.reply_text("Unknown setting.")
-            return
-    except ValueError as e:
-        await message.reply_text(f"❌ Couldn't parse that: {e}")
-        AWAITING[message.from_user.id] = key  # let them retry
-        return
-
-    await settings.set(key, value)
-    await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
+# Track "request to join" submissions for force-sub channels that use
+# join-request mode, so ensure_subscribed() can treat them as satisfied.
+@Client.on_chat_join_request()
+async def track_join_request(client, chat_join_request):
+    channel_ids = {
+        ch if isinstance(ch, int) else None
+        for ch in settings.get("force_sub_channels")
+    }
+    chat_id = chat_join_request.chat.id
+    if chat_id in channel_ids or chat_join_request.chat.username in settings.get("force_sub_channels"):
+        await db.record_join_request(chat_join_request.from_user.id, chat_id)
+      
