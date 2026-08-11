@@ -29,6 +29,14 @@ DEFAULTS: Dict[str, Any] = {
     ),
     # extra line appended under every delivered file's caption, {} unused if empty.
     "custom_caption": "",
+    # DMed to a user the moment they leave/are removed from a force-sub
+    # channel. {mention} and {chat_title} are available. Empty/"none" via
+    # /setting disables this feature entirely.
+    "leave_message": (
+        "💔 {mention}, you just left {chat_title}...\n\n"
+        "We really don't want to lose you like this. Come back? "
+        "It only takes a second and we'd love to have you around again."
+    ),
 }
 
 
