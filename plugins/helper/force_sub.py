@@ -86,9 +86,22 @@ async def ensure_subscribed(client, message: Message) -> bool:
     resume_url = f"https://t.me/{BOT_USERNAME}?start={payload}" if payload else f"https://t.me/{BOT_USERNAME}?start=start"
     buttons.append([InlineKeyboardButton("🔄 Try Again", url=resume_url)])
 
+    # Written for users who are new to Telegram: it spells out what "joining
+    # a channel" means and exactly what to do next, step by step, instead of
+    # assuming the reader already knows the Join → Try Again flow. Formatted
+    # with clear visual sections (divider, bold headers, numbered steps) so
+    # it reads well as a Telegram message rather than a wall of text.
+    channel_word = "channel" if len(missing) == 1 else "channels"
     await message.reply_text(
-        "🔒 <b>Join required</b>\n\n"
-        "Please join the channel(s) below, then tap <b>Try Again</b>.",
+        "🔐 <b>ACCESS LOCKED</b>\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
+        f"<b>To unlock this bot, please join our {channel_word} first 👇</b>\n\n"
+        "📋 <b>Steps to continue:</b>\n"
+        f"　1️⃣ Tap the {channel_word} button below\n"
+        "　2️⃣ Join, then come back here\n"
+        "　3️⃣ Tap <b>🔄 Try Again</b>\n\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "✅ <i>That's it — you're in!</i>",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
     return False
@@ -105,4 +118,5 @@ async def track_join_request(client, chat_join_request):
     chat_id = chat_join_request.chat.id
     if chat_id in channel_ids or chat_join_request.chat.username in settings.get("force_sub_channels"):
         await db.record_join_request(chat_join_request.from_user.id, chat_id)
-      
+
+ 
