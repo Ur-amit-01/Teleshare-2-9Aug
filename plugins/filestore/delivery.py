@@ -103,8 +103,12 @@ async def deliver(client, user_id: int, code: str) -> bool:
         delay = settings.get("auto_delete_time")
     if delay and sent_messages:
         ids = [m.id for m in sent_messages]
-        await schedule_deletion(client, user_id, ids, delay)
         notice = settings.get("auto_delete_notice").format(time=format_time(delay))
-        await client.send_message(user_id, notice)
+        notice_msg = await client.send_message(user_id, notice)
+        # Pass the notice's own message id (so it gets deleted alongside the
+        # files, not left behind) and the code (so we can offer a "get it
+        # again" button once everything's gone).
+        await schedule_deletion(client, user_id, ids, delay, notice_id=notice_msg.id, code=code)
 
     return True
+  
