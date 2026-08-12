@@ -56,6 +56,7 @@ from config import BACKUP_CHANNEL, LOG_CHANNEL
 from plugins.helper.filters import admin_filter
 from plugins.helper.media import extract_media
 from plugins.filestore.linking import save_link, build_deep_link
+from plugins.filestore.admin_settings import AWAITING as SETTINGS_AWAITING
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,17 @@ MEDIA_FILTER = (
     filters.document | filters.video | filters.photo | filters.audio
     | filters.voice | filters.animation | filters.video_note | filters.sticker
 )
+
+
+def _not_awaiting_settings_reply(_, __, message: Message) -> bool:
+    """Blocks handle_admin_media from swallowing a photo (or any other
+    media) that was actually meant for an in-progress /setting field —
+    most notably 'start_photo', where an admin sending the picture should
+    set it as the start photo, not get an upload/link-generation prompt."""
+    return not (
+        message.from_user is not None
+        and message.from_user.id in SETTINGS_AWAITING
+    )
 
 
 def _claim_group(gid: str) -> bool:
@@ -347,7 +359,10 @@ async def batch_controls(client, query: CallbackQuery):
     )
 
 
-@Client.on_message(filters.private & admin_filter & MEDIA_FILTER)
+@Client.on_message(
+    filters.private & admin_filter & MEDIA_FILTER
+    & filters.create(_not_awaiting_settings_reply)
+)
 async def handle_admin_media(client, message: Message):
     admin_id = message.from_user.id
 
@@ -450,6 +465,7 @@ async def confirm_link(client, query: CallbackQuery):
         await client.send_message(
             LOG_CHANNEL, f"📄 Link created by {query.from_user.mention}: {link}"
         )
+
 
 
  
