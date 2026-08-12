@@ -11,10 +11,11 @@ from plugins.filestore.delivery import deliver
 async def start(client, message: Message):
     await db.add_user(message.from_user.id)
 
-    if not await ensure_subscribed(client, message):
-        return  # join-required message already sent
-
     if len(message.command) > 1:
+        # Only gate access when a user is actually trying to open a file —
+        # a bare /start (just browsing/opening the bot) is never blocked.
+        if not await ensure_subscribed(client, message):
+            return  # join-required message already sent
         code = message.command[1]
         await deliver(client, message.from_user.id, code)
         return
