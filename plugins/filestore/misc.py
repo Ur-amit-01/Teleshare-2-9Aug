@@ -14,7 +14,7 @@ ADMIN_HELP = """<b>🛠 Admin commands</b>
 • /batch — start collecting several files into one link, finish with /done
 • /cancel — discard the batch currently in progress
 • /range_files SOURCE_CHAT_ID FIRST_ID LAST_ID — bulk-import an existing range of messages
-• /delete_link CODE — remove a link and its backed-up file(s)
+• /delete CODE_OR_LINK — remove a link and its backed-up file(s)
 • /broadcast — reply to a message (or add text) to send it to every user
 • /setting — view/edit force-sub channels, auto-delete timer, protect content, etc.
 • /stats — usage statistics
@@ -49,3 +49,4 @@ async def stats_command(client, message: Message):
         f"• Files stored: <code>{files}</code>\n"
         f"• Uptime: <code>{str(uptime).split('.')[0]}</code>"
     )
+    
