@@ -2,9 +2,8 @@
 start_message.py — builds/sends the bot's "start" content: an optional
 photo plus the start_text setting, with the NEET material list rendered
 as inline buttons (instead of text links). Shared by:
-  - plugins/filestore/start.py   (bare /start)
-  - plugins/filestore/deletion.py (sent again after an auto-deleted file,
-    in place of the old single "Get It Again" link button)
+  - plugins/filestore/start.py   (bare /start, and the "🔄 Get Files Again"
+    button callback fired from an auto-delete notice — see deletion.py)
 
 Kept in its own module (rather than inside start.py) so deletion.py can
 import it without a circular import through delivery.py -> deletion.py.
@@ -73,4 +72,5 @@ async def send_start_message(client, chat_id: int, mention: str = None):
         await client.send_message(
             chat_id, text, disable_web_page_preview=True, reply_markup=reply_markup
         )
-      
+
+  
