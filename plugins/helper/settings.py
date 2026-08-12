@@ -21,12 +21,35 @@ DEFAULTS: Dict[str, Any] = {
     "auto_delete_notice": "⏳ These file(s) will be auto-deleted in {time}. Forward/save them now.",
     # if True, delivered messages are sent with forwarding/saving disabled.
     "protect_content": False,
-    # shown on a bare /start (no deep-link payload).
+    # shown on a bare /start (no deep-link payload), and resent (without a
+    # photo re-check — see start_photo below) after an auto-deleted file's
+    # "get it again" moment. {mention} is available but optional.
     "start_text": (
-        "👋 Hi {mention}!\n\n"
-        "Send me a link and I'll deliver the files behind it, "
-        "or if you're an admin just send me a file to store it."
+        "NEET Study Materials 👇🏻👇🏻\n\n"
+        "╭──────┉┈◈◉◈┈┉──────\n"
+        "┃\n"
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=JAKWudVK">All Med Easy</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=1QCmMsuK">Anand Mani Pocket Book</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=y02GqyvF">MTG Fingertips</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=WWz834R9">Vedantu TATVA</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=FbBsxeOM">HC Verma</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=isYY6kAB">NCERT Punch</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=dRqVII4n">Unacademy Modules</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=KvwSKgKr">Cengage Materials</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=otyvXl9p">Allen Modules</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=cyHbUpA2">PYQs</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=6wLXrHjl">PW Modules</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=pLeOXBL6">Masterclass in Biology</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=K9mTX0y7">Aakash Modules</a>\n'
+        '┣⪼ <a href="https://t.me/Shushubshb_bot?start=ejcgwRo5">PW Real test series (Phase-2)</a>\n'
+        '┃<a href="https://t.me/Shushubshb_bot?start=xmF0j2u8">Flashcards</a>\n'
+        "╰──────┉┈◈◉◈┈┉──────\n\n"
+        "• Click on the material name to get the PDFs. ☺"
     ),
+    # file_id (after an admin uploads a photo via /setting) or a direct
+    # image URL to send above start_text on /start and after an
+    # auto-deleted file. Empty = text-only, no photo.
+    "start_photo": "",
     # extra line appended under every delivered file's caption, {} unused if empty.
     "custom_caption": "",
     # DMed to a user the moment they leave/are removed from a force-sub
