@@ -33,7 +33,7 @@ DB_URL = os.environ.get("DB_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "filestore_bot")
 
 # ---- Access control ---------------------------------------------------------
-# Users who can upload files, run /setting, /broadcast, /stats, /delete_link, etc.
+# Users who can upload files, run /setting, /broadcast, /stats, /delete, etc.
 ADMINS = _as_id_list(os.environ.get("ADMINS", ""))
 
 # Private channel the bot backs every uploaded file up to.
@@ -70,4 +70,4 @@ def missing_required():
     if not BACKUP_CHANNEL:
         problems.append(("BACKUP_CHANNEL", "the backup channel's id, e.g. '-1001234567890'"))
     return problems
-    
+
