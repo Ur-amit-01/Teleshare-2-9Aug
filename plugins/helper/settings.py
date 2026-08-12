@@ -27,26 +27,30 @@ DEFAULTS: Dict[str, Any] = {
     "start_text": (
         "NEET Study Materials 👇🏻👇🏻\n\n"
         "╭──────┉┈◈◉◈┈┉──────\n"
-        "┃\n"
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=JAKWudVK">All Med Easy</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=1QCmMsuK">Anand Mani Pocket Book</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=y02GqyvF">MTG Fingertips</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=WWz834R9">Vedantu TATVA</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=FbBsxeOM">HC Verma</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=isYY6kAB">NCERT Punch</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=dRqVII4n">Unacademy Modules</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=KvwSKgKr">Cengage Materials</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=otyvXl9p">Allen Modules</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=cyHbUpA2">PYQs</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=6wLXrHjl">PW Modules</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=pLeOXBL6">Masterclass in Biology</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=K9mTX0y7">Aakash Modules</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=ejcgwRo5">PW Real test series (Phase-2)</a>\n'
-        '┣⪼ <a href="https://t.me/MBBS_Pagluu_bot?start=xmF0j2u8">Flashcards</a>\n'
-        "┃\n"
+        "┃  Tap a button below to get its PDFs\n"
         "╰──────┉┈◈◉◈┈┉──────\n\n"
         "• Click on the material name to get the PDFs. ☺"
     ),
+    # (label, deep-link code) pairs rendered as inline buttons under
+    # start_text — see plugins/helper/start_message.py for how these are
+    # laid out into rows.
+    "start_materials": [
+        ("All Med Easy", "JAKWudVK"),
+        ("Anand Mani Pocket Book", "1QCmMsuK"),
+        ("MTG Fingertips", "y02GqyvF"),
+        ("Vedantu TATVA", "WWz834R9"),
+        ("HC Verma", "FbBsxeOM"),
+        ("NCERT Punch", "isYY6kAB"),
+        ("Unacademy Modules", "dRqVII4n"),
+        ("Cengage Materials", "KvwSKgKr"),
+        ("Allen Modules", "otyvXl9p"),
+        ("PYQs", "cyHbUpA2"),
+        ("PW Modules", "6wLXrHjl"),
+        ("Masterclass in Biology", "pLeOXBL6"),
+        ("Aakash Modules", "K9mTX0y7"),
+        ("PW Real test series (Phase-2)", "ejcgwRo5"),
+        ("Flashcards", "xmF0j2u8"),
+    ],
     # file_id (after an admin uploads a photo via /setting) or a direct
     # image URL to send above start_text on /start and after an
     # auto-deleted file. Empty = text-only, no photo.
@@ -90,4 +94,3 @@ from plugins.helper.db import db  # noqa: E402  (avoid circular import at module
 
 # Single shared instance used by every plugin. Call `await settings.load()` at boot.
 settings = SettingsManager(db)
-
