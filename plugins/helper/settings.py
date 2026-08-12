@@ -25,11 +25,10 @@ DEFAULTS: Dict[str, Any] = {
     # photo re-check — see start_photo below) after an auto-deleted file's
     # "get it again" moment. {mention} is available but optional.
     "start_text": (
-        "NEET Study Materials 👇🏻👇🏻\n\n"
-        "╭──────┉┈◈◉◈┈┉──────\n"
-        "┃  Tap a button below to get its PDFs\n"
-        "╰──────┉┈◈◉◈┈┉──────\n\n"
-        "• Click on the material name to get the PDFs. ☺"
+        "> 📚 𝗡𝗘𝗘𝗧 𝗦𝗧𝗨𝗗𝗬 𝗠𝗔𝗧𝗘𝗥𝗜𝗔𝗟𝗦\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "**     ✦ Choose a material below**\n"
+        "**     ✦ Tap the button to get PDF**"
     ),
     # (label, deep-link code) pairs rendered as inline buttons under
     # start_text — see plugins/helper/start_message.py for how these are
