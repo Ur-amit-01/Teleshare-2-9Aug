@@ -4,6 +4,7 @@ that record back into a delivered message when we can't just forward it.
 """
 from typing import Optional, Tuple
 
+from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 
 # media_type -> attribute name on Message
@@ -34,10 +35,19 @@ async def send_by_file_id(
     protect_content: bool = False,
     reply_markup=None,
 ):
-    """Re-upload a piece of media purely from its file_id (no forwarding)."""
+    """Re-upload a piece of media purely from its file_id (no forwarding).
+
+    caption is always the already-HTML-formatted string produced by
+    extract_media() (Message.caption.html / Message.text.html), so
+    parse_mode is pinned to HTML here — otherwise Pyrogram's default
+    "combined" markdown+HTML parser can reinterpret stray characters
+    (*, _, `, [ ) in the caption's plain-text portions and subtly mangle
+    formatting that was already exactly right as HTML.
+    """
     kwargs = dict(
         chat_id=chat_id,
         caption=caption or None,
+        parse_mode=ParseMode.HTML,
         protect_content=protect_content,
         reply_markup=reply_markup,
     )
@@ -65,6 +75,7 @@ async def send_by_file_id(
                                           reply_markup=reply_markup)
     if media_type == "text":
         return await client.send_message(chat_id=chat_id, text=caption or "‌",
+                                          parse_mode=ParseMode.HTML,
                                           protect_content=protect_content,
                                           reply_markup=reply_markup)
     raise ValueError(f"Unsupported media_type: {media_type}")
@@ -75,11 +86,11 @@ def build_input_media(media_type: str, file_id: str, caption: str = ""):
     from pyrogram.types import InputMediaDocument, InputMediaVideo, InputMediaPhoto, InputMediaAudio
 
     if media_type == "document":
-        return InputMediaDocument(media=file_id, caption=caption or None)
+        return InputMediaDocument(media=file_id, caption=caption or None, parse_mode=ParseMode.HTML)
     if media_type == "video":
-        return InputMediaVideo(media=file_id, caption=caption or None)
+        return InputMediaVideo(media=file_id, caption=caption or None, parse_mode=ParseMode.HTML)
     if media_type == "photo":
-        return InputMediaPhoto(media=file_id, caption=caption or None)
+        return InputMediaPhoto(media=file_id, caption=caption or None, parse_mode=ParseMode.HTML)
     if media_type == "audio":
-        return InputMediaAudio(media=file_id, caption=caption or None)
+        return InputMediaAudio(media=file_id, caption=caption or None, parse_mode=ParseMode.HTML)
     raise ValueError(f"{media_type} can't be part of an album")
