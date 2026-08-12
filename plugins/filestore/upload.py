@@ -1,47 +1,4 @@
-"""
-upload.py — how files get into the system.
 
-Two flows, both admin-only:
-  * Direct send: admin sends/forwards a single file (or album). Nothing is
-    written to the backup channel yet — the bot only remembers *where* the
-    message came from. A link is only generated after the admin confirms
-    via the Yes/No prompt.
-  * Batch: /batch starts a session, every file/album sent after that is
-    remembered (still not copied anywhere). Each batch of files received in
-    one go (a single file, or a whole album) replaces the running counter
-    message ("N file(s) received in batch so far") with a fresh one carrying
-    ✅ Yes / ❌ No buttons — tapping ✅ Yes produces one link for everything
-    (no per-item confirmation — that tap is the confirmation), tapping ❌ No
-    discards it. There are no /done or /cancel text commands — the buttons
-    are the only way to finish or discard a batch.
-    A batch session auto-expires after 5 minutes of no new files — the
-    session is closed and /batch must be run again.
-
-IMPORTANT — backup-channel timing:
-Media is copied into BACKUP_CHANNEL in exactly one place: `_finalize_entries()`,
-which runs only once a link is actually about to be created (tapping
-"✅ Yes"). Tapping "❌ No" discards everything with nothing to clean up in
-the backup channel, because nothing was ever sent there. This intentionally
-differs from copying-on-receipt: nothing should land in the backup channel
-until a shareable link is actually generated.
-
-IMPORTANT — ordering:
-Handlers for different incoming messages can run concurrently (an album's
-extra get_media_group() await can let a later, faster single-file message
-finish appending first). Telegram message IDs are monotonically increasing
-per chat, so BATCH_SESSIONS is re-sorted by src_message_id on every append —
-that's what keeps the saved order matching the order files were actually
-sent in, regardless of which async task happened to finish first.
-
-Albums (media groups) are always handled as a single unit — via
-get_media_group() while collecting, and copy_media_group() when finalizing —
-so they stay grouped exactly as they were sent instead of arriving as
-separate messages.
-
-Note: batch sessions and pending single-file confirmations live in memory
-only. A restart while one is open will lose it — finished links are
-unaffected since those are already in the database.
-"""
 import asyncio
 import logging
 import time
@@ -331,7 +288,7 @@ async def _finalize_and_report_batch(client, admin_id: int, items: list, status:
     code = await save_link(admin_id, entries, is_batch=True)
     link = build_deep_link(code)
     await status.edit_text(
-        f"<blockquote>✅ Batch Link Ready</blockquote>\n"
+        f"<b><blockquote>✅ Batch Link Ready</blockquote></b>\n"
         f"<b>{len(entries)} file(s)</b>\n\n<code>{link}</code>"
     )
     if LOG_CHANNEL:
@@ -345,12 +302,9 @@ async def start_batch(client, message: Message):
     _BATCH_STATUS_MSG.pop(admin_id, None)
     _arm_batch_timeout(client, admin_id)
     await message.reply_text(
-        "<blockquote>📦 Batch Mode Started</blockquote>\n"
-        "<b>Send all the files for this link.\n"
-        "A counter with ✅ Yes / ❌ No will track them — tap ✅ Yes to "
-        "generate the link, ❌ No to discard.\n"
-        "Nothing is stored until you tap ✅ Yes.\n"
-        "Session expires after 5 min of inactivity.</b>"
+        "<b><blockquote>📚 Batch Mode</blockquote>\n"
+        "• Send all the files in sequence.\n\n"
+        "• Session expires after 5 mins of inactivity.</b>"
     )
 
 
@@ -371,7 +325,7 @@ async def batch_controls(client, query: CallbackQuery):
     if decision == "cancel":
         await query.answer()
         await query.message.edit_text(
-            "<blockquote>🗑 Batch Discarded</blockquote>\n<b>Nothing was ever stored.</b>",
+            "<blockquote>🗑 Batch Discarded</blockquote>\n<b>• Nothing was ever stored.</b>",
             reply_markup=None,
         )
         return
@@ -386,7 +340,7 @@ async def batch_controls(client, query: CallbackQuery):
 
     await query.answer()
     await query.message.edit_text(
-        "<blockquote>⏳ Working</blockquote>\n<b>Saving files and generating your link...</b>",
+        "<blockquote>⏳ Working</blockquote>\n<b>• Saving files and generating your link...</b>",
         reply_markup=None,
     )
     await _finalize_and_report_batch(
@@ -441,7 +395,7 @@ async def handle_admin_media(client, message: Message):
             label = "file" if count == 1 else "files"
             text = (
                 "<blockquote>📥 Batch Progress</blockquote>\n"
-                f"<b>{count} {label} received so far.</b>"
+                f"<b>• {count} {label} received so far.</b>"
             )
             markup = _batch_controls(count)
             old_status_msg = _BATCH_STATUS_MSG.pop(admin_id, None)
@@ -483,13 +437,13 @@ async def confirm_link(client, query: CallbackQuery):
         # to delete — discarding is just forgetting the pending reference.
         await query.answer()
         await query.message.edit_text(
-            "<blockquote>🗑 Discarded</blockquote>\n<b>No link was generated, nothing was stored.</b>"
+            "<blockquote>🗑 Discarded</blockquote>\n<b>• No link was generated, nothing was stored.</b>"
         )
         return
 
     await query.answer()
     await query.message.edit_text(
-        "<blockquote>⏳ Working</blockquote>\n<b>Saving file(s) and generating your link...</b>"
+        "<blockquote>⏳ Working</blockquote>\n<b>Saving files and generating your link...</b>"
     )
 
     entries, failures = await _finalize_entries(client, items)
@@ -505,7 +459,7 @@ async def confirm_link(client, query: CallbackQuery):
     code = await save_link(admin_id, entries, is_batch=len(entries) > 1)
     link = build_deep_link(code)
     await query.message.edit_text(
-        f"<blockquote>✅ Link Ready</blockquote>\n<b>{len(entries)} file(s)</b>\n\n<code>{link}</code>"
+        f"<blockquote>✅ Link Generated</blockquote>\n<b>{len(entries)} files</b>\n\n<blockquote>{link}</blockquote>"
     )
     if LOG_CHANNEL:
         await client.send_message(
