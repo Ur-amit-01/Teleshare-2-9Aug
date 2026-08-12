@@ -1,5 +1,5 @@
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import CallbackQuery, Message
 
 from plugins.helper.db import db
 from plugins.helper.force_sub import ensure_subscribed
@@ -21,4 +21,14 @@ async def start(client, message: Message):
         return
 
     await send_start_message(client, message.chat.id, message.from_user.mention)
+
+
+@Client.on_callback_query(filters.regex(r"^trigger:start$"))
+async def start_via_button(client, query: CallbackQuery):
+    """Fired by the "🔄 Get Files Again" button on the auto-delete notice
+    (see plugins/filestore/deletion.py). Behaves like a bare /start — no
+    code attached, so there's nothing to gate behind force-sub here."""
+    await db.add_user(query.from_user.id)
+    await query.answer()
+    await send_start_message(client, query.message.chat.id, query.from_user.mention)
 
