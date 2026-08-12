@@ -3,12 +3,19 @@ admin_settings.py — /setting panel.
 
 Buttons trigger a "waiting for reply" state per-admin (AWAITING dict); the
 next plain text message that admin sends is captured as the new value.
+
+The "Reset to Defaults" button asks for confirmation via an inline
+Yes/No keyboard (Telegram bots have no native two-choice confirm dialog),
+then wipes every setting back to DEFAULTS and posts the pre-reset values
+back as a plain text backup so nothing customized is lost for good.
 """
+import html as html_lib
+
 from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from plugins.helper.filters import admin_filter
-from plugins.helper.settings import settings
+from plugins.helper.settings import settings, DEFAULTS
 from plugins.helper.time_parser import format_time, parse_time
 
 # admin_id -> setting key currently being edited
@@ -50,6 +57,7 @@ def _panel_buttons() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("🖼 Start photo", callback_data="setting:start_photo")],
         [InlineKeyboardButton("💬 Custom caption", callback_data="setting:custom_caption")],
         [InlineKeyboardButton("💔 Leave message", callback_data="setting:leave_message")],
+        [InlineKeyboardButton("🔄 Reset to Defaults", callback_data="reset:ask")],
     ])
 
 
@@ -65,6 +73,65 @@ async def setting_pick(client, query: CallbackQuery):
     await query.answer()
     await query.message.reply_text(
         f"✏️ Send the new value.\n<i>{FIELD_LABELS[key]}</i>"
+    )
+
+
+# ── Reset to defaults ────────────────────────────────────────────────────
+
+@Client.on_callback_query(filters.regex(r"^reset:ask$") & admin_filter)
+async def reset_ask(client, query: CallbackQuery):
+    await query.answer()
+    await query.message.reply_text(
+        "⚠️ <b>Reset ALL settings to default?</b>\n\n"
+        "Every field above will be overwritten back to its original "
+        "default value. I'll send you the current values as a backup "
+        "right before doing it, but this can't be undone automatically.\n\n"
+        "Do you want to continue?",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Yes, reset everything", callback_data="reset:yes"),
+            InlineKeyboardButton("❌ Cancel", callback_data="reset:no"),
+        ]]),
+    )
+
+
+@Client.on_callback_query(filters.regex(r"^reset:no$") & admin_filter)
+async def reset_no(client, query: CallbackQuery):
+    await query.answer("Cancelled — nothing changed.")
+    await query.message.edit_text("❎ Reset cancelled — nothing changed.")
+
+
+async def _send_backup(client, chat_id: int, previous: dict):
+    """Post the pre-reset values back as plain text, chunked to stay under
+    Telegram's message length limit. HTML-escaped since some values (like
+    start_text) contain raw <a> tags that would otherwise be parsed."""
+    header = "📦 <b>Previous settings (before reset)</b>\n"
+    chunks, buf = [], header
+    for key, value in previous.items():
+        line = f"\n<b>{html_lib.escape(str(key))}</b>:\n<code>{html_lib.escape(str(value))}</code>\n"
+        if len(buf) + len(line) > 3500:
+            chunks.append(buf)
+            buf = ""
+        buf += line
+    if buf:
+        chunks.append(buf)
+    for chunk in chunks:
+        await client.send_message(chat_id, chunk)
+
+
+@Client.on_callback_query(filters.regex(r"^reset:yes$") & admin_filter)
+async def reset_yes(client, query: CallbackQuery):
+    await query.answer("Resetting…")
+
+    previous = settings.all()  # snapshot before wiping
+
+    await _send_backup(client, query.message.chat.id, previous)
+
+    for key, value in DEFAULTS.items():
+        await settings.set(key, value)
+
+    await query.message.edit_text("✅ All settings have been reset to default.")
+    await client.send_message(
+        query.message.chat.id, _panel_text(), reply_markup=_panel_buttons()
     )
 
 
@@ -122,5 +189,4 @@ async def setting_apply(client, message: Message):
 
     await settings.set(key, value)
     await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
-
 
