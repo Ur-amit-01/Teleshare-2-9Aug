@@ -9,9 +9,8 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-
 from plugins.helper.db import db
+from plugins.helper.start_message import send_start_message
 
 logger = logging.getLogger(__name__)
 
@@ -31,22 +30,19 @@ async def _delete_later(
             all_ids.append(notice_id)
         await client.delete_messages(chat_id, all_ids)
 
-        # Immediately let the user get the same content back with one tap,
-        # instead of having to dig up the original link again.
+        # Instead of a single "Get It Again" link back to just this one
+        # file's code, resend the full start photo + links message so the
+        # user has every material to hand, not just the one that expired.
         if code:
-            import config
-            get_again_url = f"https://t.me/{config.BOT_USERNAME}?start={code}"
             await client.send_message(
                 chat_id,
                 "🗑️ <b>FILE(S) AUTO-DELETED</b>\n"
                 "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
                 "The file(s) above were removed as scheduled to keep this "
                 "chat clean. 🧹\n\n"
-                "😊 <i>No worries — you can grab them again anytime:</i>",
-                reply_markup=InlineKeyboardMarkup(
-                    [[InlineKeyboardButton("📥 Get It Again", url=get_again_url)]]
-                ),
+                "😊 <i>No worries — grab them again below:</i>",
             )
+            await send_start_message(client, chat_id)
     except Exception as e:
         logger.warning(f"Auto-delete failed for job {job_id}: {e}")
     finally:
@@ -89,4 +85,4 @@ async def restore_pending_deletions(client):
         )
     if jobs:
         logger.info(f"Restored {len(jobs)} pending auto-delete job(s).")
-        
+
