@@ -259,8 +259,8 @@ def _batch_controls(count: int) -> InlineKeyboardMarkup:
     """The Yes/No-style controls attached to the running counter message —
     the only way to finish or discard a batch."""
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton(f"✅ Yes, finish ({count})", callback_data="batchctl:done", style="success"),
-        InlineKeyboardButton("❌ No, cancel", callback_data="batchctl:cancel", style="danger"),
+        InlineKeyboardButton(f"✅ Yes, finish ({count})", callback_data="batchctl:done"),
+        InlineKeyboardButton("❌ No, cancel", callback_data="batchctl:cancel"),
     ]])
 
 
