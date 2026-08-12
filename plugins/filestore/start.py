@@ -2,8 +2,8 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 
 from plugins.helper.db import db
-from plugins.helper.settings import settings
 from plugins.helper.force_sub import ensure_subscribed
+from plugins.helper.start_message import send_start_message
 from plugins.filestore.delivery import deliver
 
 
@@ -19,6 +19,5 @@ async def start(client, message: Message):
         await deliver(client, message.from_user.id, code)
         return
 
-    text = settings.get("start_text").format(mention=message.from_user.mention)
-    await message.reply_text(text)
-    
+    await send_start_message(client, message.chat.id, message.from_user.mention)
+
