@@ -313,8 +313,8 @@ async def _finalize_and_report_batch(client, admin_id: int, items: list, status:
     code = await save_link(admin_id, entries, is_batch=True)
     link = build_deep_link(code)
     await status.edit_text(
-        f"<b><blockquote>✅ Batch Link Ready</blockquote></b>\n"
-        f"<b>{len(entries)} files</b>\n\n<code>{link}</code>\n\n<blockquote>{link}</blockquote>"
+        f"<b><blockquote>✅ Batch Link Ready ({len(entries)}) files</blockquote>\n\n"
+        f"<code>{link}</code>\n\n<blockquote>{link}</blockquote></b>"
     )
     if LOG_CHANNEL:
         await client.send_message(LOG_CHANNEL, f"📦 Batch link created by {mention}: {link}")
@@ -350,7 +350,7 @@ async def batch_controls(client, query: CallbackQuery):
     if decision == "cancel":
         await query.answer()
         await query.message.edit_text(
-            "<blockquote>🗑 Batch Discarded</blockquote>\n<b>• Nothing was ever stored.</b>",
+            "<b><blockquote>🗑 Batch Discarded</blockquote>\n• Nothing was ever stored.</b>",
             reply_markup=None,
         )
         return
@@ -365,7 +365,7 @@ async def batch_controls(client, query: CallbackQuery):
 
     await query.answer()
     await query.message.edit_text(
-        "<blockquote>⏳ Working</blockquote>\n<b>• Saving files and generating your link...</b>",
+        "<b><blockquote>⏳ Working</blockquote>\n• Saving files and generating your link...</b>",
         reply_markup=None,
     )
     await _finalize_and_report_batch(
@@ -405,8 +405,8 @@ async def _append_to_batch(client, message: Message, admin_id: int, items: list)
         count = len(BATCH_SESSIONS[admin_id])
         label = "item" if count == 1 else "items"
         text = (
-            "<blockquote>📥 Batch Progress</blockquote>\n"
-            f"<b>• {count} {label} received so far.</b>"
+            "<b><blockquote>📥 Batch Progress</blockquote>\n"
+            f"• {count} {label} received so far.</b>"
         )
         markup = _batch_controls(count)
         old_status_msg = _BATCH_STATUS_MSG.pop(admin_id, None)
@@ -481,13 +481,13 @@ async def confirm_link(client, query: CallbackQuery):
         # to delete — discarding is just forgetting the pending reference.
         await query.answer()
         await query.message.edit_text(
-            "<blockquote>🗑 Discarded</blockquote>\n<b>• No link was generated, nothing was stored.</b>"
+            "<b><blockquote>🗑 Discarded</blockquote>\n• No link was generated, nothing was stored.</b>"
         )
         return
 
     await query.answer()
     await query.message.edit_text(
-        "<blockquote>⏳ Working</blockquote>\n<b>Saving files and generating your link...</b>"
+        "<b><blockquote>⏳ Working</blockquote>\nSaving files and generating your link...</b>"
     )
 
     entries, failures = await _finalize_entries(client, items)
@@ -503,7 +503,7 @@ async def confirm_link(client, query: CallbackQuery):
     code = await save_link(admin_id, entries, is_batch=len(entries) > 1)
     link = build_deep_link(code)
     await query.message.edit_text(
-        f"<blockquote>✅ Link Generated</blockquote>\n<b>{len(entries)} files</b>\n\n<code>{link}</code>\n\n<blockquote>{link}</blockquote>"
+        f"<b><blockquote>✅ Link Generated</blockquote>\n\n<code>{link}</code>\n\n<blockquote>{link}</blockquote></b>"
     )
     if LOG_CHANNEL:
         await client.send_message(
