@@ -41,6 +41,7 @@ DEFAULTS: Dict[str, Any] = {
         ("Vedantu TATVA", "k2tRDpXR"),
         ("Unacademy Modules", "WOJdSLuG"),
         ("Allen Modules", "l0VEzVrW"),
+        ("PW Modules", "YykwfCCx"),
         ("MTG (2025-26)", "5s97HpH1"),
         ("NEET Question Papers (1998-2026)", "3Z4RUIZ1"),
         ("NCERT Punch", "agLPRfWA"),
