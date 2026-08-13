@@ -39,13 +39,18 @@ class Database:
             "banned": False,
         }
 
-    async def add_user(self, user_id: int):
+    async def add_user(self, user_id: int) -> bool:
+        """Insert the user if they're new, else just bump last_seen.
+        Returns True the first time a given user_id is ever seen, so
+        callers can fire "new user" notifications without a separate
+        is_user_exist() round-trip."""
         if not await self.is_user_exist(user_id):
             await self.users.insert_one(self._new_user(user_id))
-        else:
-            await self.users.update_one(
-                {"_id": int(user_id)}, {"$set": {"last_seen": datetime.utcnow()}}
-            )
+            return True
+        await self.users.update_one(
+            {"_id": int(user_id)}, {"$set": {"last_seen": datetime.utcnow()}}
+        )
+        return False
 
     async def is_user_exist(self, user_id: int) -> bool:
         return bool(await self.users.find_one({"_id": int(user_id)}))
