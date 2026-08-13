@@ -41,13 +41,15 @@ async def _delete_later(
             )
             await client.send_message(
                 chat_id,
-                "🗑️ <b>FILE(S) AUTO-DELETED</b>\n"
-                "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
-                "The file(s) above were removed as scheduled to keep this "
-                "chat clean. 🧹\n\n"
-                "😊 <i>No worries — tap below to grab them again:</i>",
+                "<b><blockquote>🗑️ FILES AUTO-DELETED</blockquote>\n"
+                "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+                "The files were automatically deleted\n"
+                "to keep this chat clean. 🧹\n\n"
+                "😊 No worries"
+                "  • Tap the button below to get them again 👇</b>"
                 reply_markup=keyboard,
-            )
+            )),
+        
     except Exception as e:
         logger.warning(f"Auto-delete failed for job {job_id}: {e}")
     finally:
