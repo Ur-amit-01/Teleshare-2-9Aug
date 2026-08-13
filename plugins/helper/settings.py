@@ -18,8 +18,9 @@ DEFAULTS: Dict[str, Any] = {
     # seconds to wait before deleting delivered files. 0 = never auto-delete.
     "auto_delete_time": 0,
     # shown right after delivering files when auto-delete is enabled.
-    "auto_delete_notice": "⏳ These file(s) will be auto-deleted in {time}. Forward/save them now.",
+    "auto_delete_notice": "**⚠️ These files will be automatically deleted in {time}.\n💾 Save or forward the files before they’re gone.**",
     # if True, delivered messages are sent with forwarding/saving disabled.
+Please forward or save them before then.
     "protect_content": False,
     # shown on a bare /start (no deep-link payload), and resent (without a
     # photo re-check — see start_photo below) after an auto-deleted file's
