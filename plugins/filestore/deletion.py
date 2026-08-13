@@ -46,9 +46,9 @@ async def _delete_later(
                 "The files were automatically deleted\n"
                 "to keep this chat clean. 🧹\n\n"
                 "😊 No worries"
-                "  • Tap the button below to get them again 👇</b>"
+                "  • Tap the button below to get them again 👇</b>",
                 reply_markup=keyboard,
-            )),
+            ),
         
     except Exception as e:
         logger.warning(f"Auto-delete failed for job {job_id}: {e}")
