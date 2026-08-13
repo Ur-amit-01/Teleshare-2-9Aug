@@ -6,6 +6,9 @@ Collections:
   files             -> one doc per shareable link: code -> stored message refs
   settings          -> runtime-editable admin settings (see settings.py wrapper)
   pending_deletions -> auto-delete jobs that must survive a bot restart
+  feedback          -> maps a relayed message in an admin's DM back to the
+                        user it came from, so a swipe-reply can be routed
+                        (see plugins/filestore/feedback.py)
 """
 import logging
 from datetime import datetime
@@ -28,6 +31,7 @@ class Database:
         self.files = self.db.files
         self.settings = self.db.settings
         self.pending_deletions = self.db.pending_deletions
+        self.feedback = self.db.feedback
 
     # ================= Users ================= #
     def _new_user(self, user_id: int) -> Dict:
@@ -157,6 +161,21 @@ class Database:
                 logger.warning(f"remove_pending_deletion got a non-ObjectId id: {_id!r}")
                 return
         await self.pending_deletions.delete_one({"_id": _id})
+
+    # ================= Feedback relay (user <-> admin DM) ================= #
+    # _id is "{admin_chat_id}:{relayed_message_id}" — every message copied
+    # into an admin's DM (the content itself and its little info-header)
+    # gets its own mapping entry, so an admin can swipe-reply to either one.
+    async def save_feedback_message(self, admin_chat_id: int, message_id: int, user_id: int):
+        await self.feedback.update_one(
+            {"_id": f"{admin_chat_id}:{message_id}"},
+            {"$set": {"user_id": int(user_id), "created_at": datetime.utcnow()}},
+            upsert=True,
+        )
+
+    async def get_feedback_user(self, admin_chat_id: int, message_id: int) -> Optional[int]:
+        doc = await self.feedback.find_one({"_id": f"{admin_chat_id}:{message_id}"})
+        return doc["user_id"] if doc else None
 
 
 # Single shared instance used by every plugin.
