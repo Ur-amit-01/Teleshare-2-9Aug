@@ -16,6 +16,7 @@ from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 
 from plugins.helper.filters import admin_filter
 from plugins.helper.settings import settings, DEFAULTS
+from plugins.helper.start_message import _arrange_buttons
 from plugins.helper.time_parser import format_time, parse_time
 
 # admin_id -> setting key currently being edited
@@ -49,16 +50,24 @@ def _panel_text() -> str:
 
 
 def _panel_buttons() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📡 Force-sub channels", callback_data="setting:force_sub_channels")],
-        [InlineKeyboardButton("⏱ Auto-delete timer", callback_data="setting:auto_delete_time")],
-        [InlineKeyboardButton("🛡 Protect content", callback_data="setting:protect_content")],
-        [InlineKeyboardButton("📝 Start text", callback_data="setting:start_text")],
-        [InlineKeyboardButton("🖼 Start photo", callback_data="setting:start_photo")],
-        [InlineKeyboardButton("💬 Custom caption", callback_data="setting:custom_caption")],
-        [InlineKeyboardButton("💔 Leave message", callback_data="setting:leave_message")],
-        [InlineKeyboardButton("🔄 Reset to Defaults", callback_data="reset:ask")],
-    ])
+    # Packed by label size (short labels pair up, long ones get their own
+    # row) via the same _arrange_buttons helper the start-message materials
+    # keyboard uses, so the panel doesn't waste space with one-per-row
+    # buttons of wildly different widths.
+    field_buttons = [
+        InlineKeyboardButton("📡 Force-sub channels", callback_data="setting:force_sub_channels"),
+        InlineKeyboardButton("⏱ Auto-delete timer", callback_data="setting:auto_delete_time"),
+        InlineKeyboardButton("🛡 Protect content", callback_data="setting:protect_content"),
+        InlineKeyboardButton("📝 Start text", callback_data="setting:start_text"),
+        InlineKeyboardButton("🖼 Start photo", callback_data="setting:start_photo"),
+        InlineKeyboardButton("💬 Custom caption", callback_data="setting:custom_caption"),
+        InlineKeyboardButton("💔 Leave message", callback_data="setting:leave_message"),
+    ]
+    rows = _arrange_buttons(field_buttons)
+    # Reset stays on its own full-width row — it's a destructive action,
+    # not just another field, so it shouldn't get packed in next to one.
+    rows.append([InlineKeyboardButton("🔄 Reset to Defaults", callback_data="reset:ask")])
+    return InlineKeyboardMarkup(rows)
 
 
 @Client.on_message(filters.command("setting") & filters.private & admin_filter)
