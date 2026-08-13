@@ -93,8 +93,8 @@ async def _batch_timeout_worker(client, admin_id: int):
     try:
         await client.send_message(
             admin_id,
-            "<blockquote>⏱ Batch Expired</blockquote>\n"
-            "<b>No files received for 5 minutes, so the session was closed.\n"
+            "<b><blockquote>⏱ Batch Expired</blockquote>\n"
+            "No files received for 5 minutes, so the session was closed.\n"
             "Run /batch again to start a new one.</b>",
         )
     except Exception:
@@ -314,7 +314,7 @@ async def _finalize_and_report_batch(client, admin_id: int, items: list, status:
     link = build_deep_link(code)
     await status.edit_text(
         f"<b><blockquote>✅ Batch Link Ready</blockquote></b>\n"
-        f"<b>{len(entries)} file(s)</b>\n\n<code>{link}</code>"
+        f"<b>{len(entries)} files</b>\n\n<code>{link}</code>\n\n<blockquote>{link}</blockquote>"
     )
     if LOG_CHANNEL:
         await client.send_message(LOG_CHANNEL, f"📦 Batch link created by {mention}: {link}")
@@ -503,7 +503,7 @@ async def confirm_link(client, query: CallbackQuery):
     code = await save_link(admin_id, entries, is_batch=len(entries) > 1)
     link = build_deep_link(code)
     await query.message.edit_text(
-        f"<blockquote>✅ Link Generated</blockquote>\n<b>{len(entries)} files</b>\n\n<blockquote>{link}</blockquote>"
+        f"<blockquote>✅ Link Generated</blockquote>\n<b>{len(entries)} files</b>\n\n<code>{link}</code>\n\n<blockquote>{link}</blockquote>"
     )
     if LOG_CHANNEL:
         await client.send_message(
