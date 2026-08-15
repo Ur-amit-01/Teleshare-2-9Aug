@@ -1,12 +1,10 @@
+import os
 import logging
 import sys
 import asyncio
 from pyrogram import Client
 from pyrogram.handlers import MessageHandler
 from pyrogram.types import Message
-
-import config
-from config import API_ID, API_HASH, SESSION_STRING
 
 # Configure logging
 logging.basicConfig(
@@ -19,13 +17,22 @@ logger = logging.getLogger(__name__)
 # Track seen chats for NEW CHAT detection
 _seen_chats = set()
 
-# Required environment variables for userbot
-FATAL_IF_MISSING = {"API_ID", "API_HASH", "SESSION_STRING"}
+# Read config directly from environment (set these in Koyeb's env var settings)
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
+SESSION_STRING = os.getenv("SESSION_STRING")
+
+# name -> hint shown to the user if missing
+REQUIRED_VARS = {
+    "API_ID": "Get this from https://my.telegram.org",
+    "API_HASH": "Get this from https://my.telegram.org",
+    "SESSION_STRING": "Generate with a Pyrogram session-string script and paste the output",
+}
 
 
 def check_env():
-    """Check for missing environment variables and exit if critical ones are missing."""
-    problems = config.missing_required()
+    """Check for missing required environment variables and exit if any are missing."""
+    problems = [(name, hint) for name, hint in REQUIRED_VARS.items() if not os.getenv(name)]
     if not problems:
         return
 
@@ -33,19 +40,18 @@ def check_env():
     for name, hint in problems:
         logger.warning(f"   - {name}  ({hint})")
 
-    fatal = [name for name, _ in problems if name in FATAL_IF_MISSING]
-    if fatal:
-        logger.error(
-            f"Cannot start: {', '.join(fatal)} must be set. Fix your environment and restart."
-        )
-        sys.exit(1)
+    logger.error(
+        f"Cannot start: {', '.join(name for name, _ in problems)} must be set in Koyeb's "
+        f"environment variables. Fix and restart."
+    )
+    sys.exit(1)
 
 
 class UserBot(Client):
     def __init__(self):
         super().__init__(
             name="message_listener",
-            api_id=API_ID,
+            api_id=int(API_ID),
             api_hash=API_HASH,
             session_string=SESSION_STRING,
             workers=50,
