@@ -1,13 +1,14 @@
 import logging
 import sys
-
+import asyncio
 from pyrogram import Client
+from pyrogram.handlers import MessageHandler
+from pyrogram.types import Message
 
 import config
-from config import API_ID, API_HASH, BOT_TOKEN
-from plugins.helper.settings import settings
-from plugins.filestore.deletion import restore_pending_deletions
+from config import API_ID, API_HASH, SESSION_STRING
 
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
@@ -15,14 +16,15 @@ logging.basicConfig(
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# these have no working default — the bot can't even connect without them
-FATAL_IF_MISSING = {"API_ID", "API_HASH", "BOT_TOKEN"}
+# Track seen chats for NEW CHAT detection
+_seen_chats = set()
+
+# Required environment variables for userbot
+FATAL_IF_MISSING = {"API_ID", "API_HASH", "SESSION_STRING"}
 
 
 def check_env():
-    """Warn about every missing required variable, every single boot.
-    Exits if any of the Telegram connection credentials are missing, since
-    the bot can't do anything at all without those."""
+    """Check for missing environment variables and exit if critical ones are missing."""
     problems = config.missing_required()
     if not problems:
         return
@@ -39,52 +41,181 @@ def check_env():
         sys.exit(1)
 
 
-class Bot(Client):
+class UserBot(Client):
     def __init__(self):
         super().__init__(
-            name="filestore_bot",
+            name="message_listener",
             api_id=API_ID,
             api_hash=API_HASH,
-            bot_token=BOT_TOKEN,
+            session_string=SESSION_STRING,
             workers=50,
-            plugins={"root": "plugins"},
             sleep_threshold=5,
         )
+        # Register message handler for both incoming and outgoing
+        self.add_handler(MessageHandler(self._message_handler), group=0)
+
+    async def _message_handler(self, client, message: Message):
+        """Handle all incoming and outgoing messages."""
+        try:
+            chat = message.chat
+            chat_name = chat.title or (chat.first_name or "Unknown")
+            chat_id = chat.id
+
+            # Check if this is a new chat
+            is_new_chat = chat_id not in _seen_chats
+            if is_new_chat:
+                _seen_chats.add(chat_id)
+                logger.info(f"🆕 NEW CHAT detected: {chat_name} (ID: {chat_id})")
+
+            # Determine message direction
+            if message.outgoing:
+                direction = "➡️ OUTGOING"
+            else:
+                direction = "⬅️ INCOMING"
+
+            # Extract sender info
+            if message.from_user:
+                sender_name = message.from_user.first_name or "Unknown"
+                sender_username = f"(@{message.from_user.username})" if message.from_user.username else ""
+                sender_id = message.from_user.id
+            else:
+                sender_name = "Unknown"
+                sender_username = ""
+                sender_id = "Unknown"
+
+            # Extract message content
+            if message.text:
+                content = message.text.replace("\n", " ")[:200]  # Limit length for logs
+                if len(message.text) > 200:
+                    content += "..."
+            elif message.caption:
+                content = message.caption.replace("\n", " ")[:200]
+                if len(message.caption) > 200:
+                    content += "..."
+            else:
+                # Handle different media types
+                if message.photo:
+                    content = f"📷 Photo (size: {message.photo.width}x{message.photo.height})"
+                elif message.video:
+                    content = f"🎬 Video ({message.video.duration}s)"
+                elif message.document:
+                    content = f"📄 Document: {message.document.file_name or 'unnamed'}"
+                elif message.audio:
+                    content = f"🎵 Audio: {message.audio.title or 'unnamed'}"
+                elif message.voice:
+                    content = f"🎤 Voice message ({message.voice.duration}s)"
+                elif message.sticker:
+                    content = f"🖼️ Sticker: {message.sticker.emoji or ''}"
+                elif message.animation:
+                    content = "🎞️ GIF/Animation"
+                elif message.video_note:
+                    content = "📹 Video note"
+                else:
+                    content = "<media message>"
+
+            # Build log message
+            log_parts = [
+                f"{direction}",
+                f"Chat: {chat_name}",
+                f"ID: {chat_id}",
+                f"From: {sender_name} {sender_username} (ID: {sender_id})",
+                f"Content: {content}"
+            ]
+
+            # Add reply info if present
+            if message.reply_to_message:
+                reply_sender = message.reply_to_message.from_user
+                reply_name = reply_sender.first_name if reply_sender else "Unknown"
+                log_parts.append(f"↩️ Replying to: {reply_name} (msg ID: {message.reply_to_message.id})")
+
+            # Add forwarded info if present
+            if message.forward_from:
+                forward_name = message.forward_from.first_name or "Unknown"
+                log_parts.append(f"↪️ Forwarded from: {forward_name}")
+            elif message.forward_from_chat:
+                forward_chat = message.forward_from_chat.title or "Unknown"
+                log_parts.append(f"↪️ Forwarded from chat: {forward_chat}")
+
+            # Add new chat tag
+            if is_new_chat:
+                log_parts.append("🆕 FIRST MESSAGE FROM THIS CHAT")
+
+            logger.info(" | ".join(log_parts))
+
+        except Exception as e:
+            logger.error(f"❌ Error processing message: {e}")
 
     async def start(self):
+        """Start the userbot and initialize."""
         await super().start()
+
+        # Get user info
         me = await self.get_me()
-        config.BOT_USERNAME = me.username
+        logger.info(f"✅ Logged in as: {me.first_name} (@{me.username})")
+        logger.info(f"🆔 User ID: {me.id}")
 
-        await settings.load()
-        await restore_pending_deletions(self)
-        await self._check_backup_channel()
+        # Check if user is premium
+        if me.is_premium:
+            logger.info("⭐ Premium user account")
 
-        logger.info(f"{me.first_name} started as @{me.username}")
-
-    async def _check_backup_channel(self):
-        if not config.BACKUP_CHANNEL:
-            return  # already warned about this in check_env()
+        # Load existing dialogs to identify new chats
         try:
-            chat = await self.get_chat(config.BACKUP_CHANNEL)
-            member = await self.get_chat_member(config.BACKUP_CHANNEL, "me")
-            if not (member.privileges and member.privileges.can_post_messages):
-                logger.warning(
-                    f"Bot is a member of '{chat.title}' but can't post there — "
-                    "give it admin rights with 'Post messages' enabled."
-                )
+            logger.info("📋 Loading existing dialogs...")
+            dialog_count = 0
+            async for dialog in self.get_dialogs():
+                _seen_chats.add(dialog.chat.id)
+                dialog_count += 1
+
+                # Log first few dialogs for verification
+                if dialog_count <= 5:
+                    chat_name = dialog.chat.title or dialog.chat.first_name or "Unknown"
+                    logger.info(f"   📂 Found: {chat_name} (ID: {dialog.chat.id})")
+
+            logger.info(f"📊 Loaded {dialog_count} existing chats/dialogs")
+
         except Exception as e:
-            logger.warning(
-                f"Couldn't verify BACKUP_CHANNEL ({config.BACKUP_CHANNEL}): {e}. "
-                "Make sure the id is correct and the bot has been added as an admin."
-            )
+            logger.warning(f"⚠️ Could not preload dialogs: {e}")
+
+        # Log startup status
+        logger.info("=" * 60)
+        logger.info("👂 MESSAGE LISTENER STARTED")
+        logger.info("📨 Listening for all incoming AND outgoing messages")
+        logger.info("🆕 New chats will be marked with 🆕")
+        logger.info("📊 Listening to all private chats, groups, and channels")
+        logger.info("=" * 60)
 
     async def stop(self, *args):
+        """Stop the userbot gracefully."""
+        logger.info("🛑 Stopping userbot...")
         await super().stop()
-        logger.info("Bot stopped.")
+        logger.info("✅ Userbot stopped successfully.")
+
+
+async def main():
+    """Main entry point."""
+    # Check environment before starting
+    check_env()
+
+    logger.info("🚀 Starting message listener userbot...")
+
+    # Create and run userbot
+    userbot = UserBot()
+
+    try:
+        async with userbot:
+            # Keep the bot running
+            await asyncio.Event().wait()
+    except KeyboardInterrupt:
+        logger.info("⏹️ Received interrupt signal, shutting down...")
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    check_env()
-    Bot().run()
-    
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("⏹️ Shutdown requested")
+        sys.exit(0)
+        
