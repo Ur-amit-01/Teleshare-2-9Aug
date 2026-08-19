@@ -17,13 +17,16 @@ ADMIN_HELP = """<b>🛠 Admin commands</b>
 • /delete CODE_OR_LINK — remove a link and its backed-up file(s)
 • /broadcast — reply to a message (or add text) to send it to every user
 • /setting — view/edit force-sub channels, auto-delete timer, protect content, etc.
+• /testseries — manage the Institute → Test Series → Papers menu shown on /start
 • /stats — usage statistics
 """
 
 USER_HELP = """<b>ℹ️ Help</b>
 
-Open a link someone shared with you (t.me/<i>bot</i>?start=CODE) and I'll deliver
-the file(s) behind it — you may need to join a channel or two first if asked.
+Tap /start to browse test series by institute, then series, then paper.
+Or open a link someone shared with you (t.me/<i>bot</i>?start=CODE) and I'll
+deliver the file(s) behind it — you may need to join a channel or two first
+if asked.
 """
 
 
@@ -49,4 +52,4 @@ async def stats_command(client, message: Message):
         f"• Files stored: <code>{files}</code>\n"
         f"• Uptime: <code>{str(uptime).split('.')[0]}</code>"
     )
-    
+
