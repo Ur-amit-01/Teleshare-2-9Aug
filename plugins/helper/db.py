@@ -9,6 +9,13 @@ Collections:
   feedback          -> maps a relayed message in an admin's DM back to the
                         user it came from, so a swipe-reply can be routed
                         (see plugins/filestore/feedback.py)
+  institutes        -> test-series menu tree: one doc per institute, each
+                        embedding its own "series" list, each series
+                        embedding its own "papers" list (paper = {id, name,
+                        code}, where code points into `files`). Embedded
+                        rather than split across collections since the whole
+                        tree is small and is always read/rendered as a unit
+                        (see plugins/filestore/test_series.py).
 """
 import logging
 from datetime import datetime
@@ -32,6 +39,7 @@ class Database:
         self.settings = self.db.settings
         self.pending_deletions = self.db.pending_deletions
         self.feedback = self.db.feedback
+        self.institutes = self.db.institutes
 
     # ================= Users ================= #
     def _new_user(self, user_id: int) -> Dict:
@@ -177,6 +185,69 @@ class Database:
         doc = await self.feedback.find_one({"_id": f"{admin_chat_id}:{message_id}"})
         return doc["user_id"] if doc else None
 
+    # ================= Test series (institutes -> series -> papers) ================= #
+    # institute doc: {_id, name, created_at, series: [series_doc, ...]}
+    # series doc:    {id, name, papers: [paper_doc, ...]}
+    # paper doc:     {id, name, code}   <- code is a key into `files`
+
+    async def create_institute(self, inst_id: str, name: str) -> bool:
+        doc = {"_id": inst_id, "name": name, "series": [], "created_at": datetime.utcnow()}
+        try:
+            await self.institutes.insert_one(doc)
+            return True
+        except Exception as e:
+            logger.error(f"create_institute failed: {e}")
+            return False
+
+    async def get_institute(self, inst_id: str) -> Optional[Dict]:
+        return await self.institutes.find_one({"_id": inst_id})
+
+    async def get_all_institutes(self) -> List[Dict]:
+        return [d async for d in self.institutes.find({}).sort("created_at", 1)]
+
+    async def rename_institute(self, inst_id: str, name: str) -> bool:
+        result = await self.institutes.update_one({"_id": inst_id}, {"$set": {"name": name}})
+        return result.modified_count > 0
+
+    async def delete_institute(self, inst_id: str) -> bool:
+        result = await self.institutes.delete_one({"_id": inst_id})
+        return result.deleted_count > 0
+
+    async def add_series(self, inst_id: str, series: Dict) -> bool:
+        result = await self.institutes.update_one({"_id": inst_id}, {"$push": {"series": series}})
+        return result.modified_count > 0
+
+    async def rename_series(self, inst_id: str, series_id: str, name: str) -> bool:
+        result = await self.institutes.update_one(
+            {"_id": inst_id, "series.id": series_id},
+            {"$set": {"series.$.name": name}},
+        )
+        return result.modified_count > 0
+
+    async def delete_series(self, inst_id: str, series_id: str) -> bool:
+        result = await self.institutes.update_one(
+            {"_id": inst_id}, {"$pull": {"series": {"id": series_id}}}
+        )
+        return result.modified_count > 0
+
+    async def add_papers(self, inst_id: str, series_id: str, papers: List[Dict]) -> bool:
+        result = await self.institutes.update_one(
+            {"_id": inst_id, "series.id": series_id},
+            {"$push": {"series.$.papers": {"$each": papers}}},
+        )
+        return result.modified_count > 0
+
+    async def delete_paper(self, inst_id: str, series_id: str, paper_id: str) -> bool:
+        result = await self.institutes.update_one(
+            {"_id": inst_id, "series.id": series_id},
+            {"$pull": {"series.$.papers": {"id": paper_id}}},
+        )
+        return result.modified_count > 0
+
+    async def total_institutes_count(self) -> int:
+        return await self.institutes.count_documents({})
+
 
 # Single shared instance used by every plugin.
 db = Database(DB_URL, DB_NAME)
+
