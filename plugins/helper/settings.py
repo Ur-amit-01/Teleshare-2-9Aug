@@ -23,32 +23,16 @@ DEFAULTS: Dict[str, Any] = {
     "protect_content": False,
     # shown on a bare /start (no deep-link payload), and resent (without a
     # photo re-check — see start_photo below) after an auto-deleted file's
-    # "get it again" moment. {mention} is available but optional.
+    # "get it again" moment. {mention} is available but optional. The
+    # institute/test-series buttons rendered below this text come from the
+    # `institutes` DB collection (see plugins/filestore/test_series.py),
+    # not from a setting — manage them with /testseries.
     "start_text": (
-        "> 📚 𝗡𝗘𝗘𝗧 𝗦𝗧𝗨𝗗𝗬 𝗠𝗔𝗧𝗘𝗥𝗜𝗔𝗟𝗦\n"
+        "> 📚 𝗧𝗘𝗦𝗧 𝗦𝗘𝗥𝗜𝗘𝗦\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "**     ✦ Choose a material below**\n"
-        "**     ✦ Tap the button to get PDF**"
+        "**     ✦ Choose an institute below**\n"
+        "**     ✦ Then pick a test series, then a paper**"
     ),
-    # (label, deep-link code) pairs rendered as inline buttons under
-    # start_text — see plugins/helper/start_message.py for how these are
-    # laid out into rows.
-    "start_materials": [
-        ("DC Pandey", "QbLQSYo3"),
-        ("HC Verma", "LVg647OT"),
-        ("Anand Mani Pocket Book", "NcKnwabw"),
-        ("All Med Easy", "5XQQYTD8"),
-        ("Vedantu TATVA", "k2tRDpXR"),
-        ("Unacademy Modules", "WOJdSLuG"),
-        ("Allen Modules", "l0VEzVrW"),
-        ("PW Modules", "YykwfCCx"),
-        ("MTG (2025-26)", "5s97HpH1"),
-        ("NEET Question Papers (1998-2026)", "3Z4RUIZ1"),
-        ("NCERT Punch", "agLPRfWA"),
-        ("All Institute PYQs", "4M4NIcgK"),
-        ("Aakash Modules", "4AWLey4f"),
-        ("Masterclass in Biology", "8IQiSfwP"),
-    ],
     # file_id (after an admin uploads a photo via /setting) or a direct
     # image URL to send above start_text on /start and after an
     # auto-deleted file. Empty = text-only, no photo.
@@ -92,3 +76,4 @@ from plugins.helper.db import db  # noqa: E402  (avoid circular import at module
 
 # Single shared instance used by every plugin. Call `await settings.load()` at boot.
 settings = SettingsManager(db)
+
