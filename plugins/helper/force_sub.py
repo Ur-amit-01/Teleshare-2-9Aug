@@ -65,6 +65,40 @@ async def get_missing_channels(client, user_id: int) -> list:
     return missing
 
 
+async def _send_join_required(client, chat_id: int, missing: list, resume_payload: str):
+    """Shared by both ensure_subscribed() and ensure_subscribed_for_user() —
+    builds and sends the "please join" message. `resume_payload` is whatever
+    should be resumed via the Try Again button's deep link (a file code, a
+    test-paper code, or "" for a bare /start)."""
+    buttons = [[await _channel_join_button(client, ch)] for ch in missing]
+    from config import BOT_USERNAME
+    resume_url = (
+        f"https://t.me/{BOT_USERNAME}?start={resume_payload}"
+        if resume_payload else f"https://t.me/{BOT_USERNAME}?start=start"
+    )
+    buttons.append([InlineKeyboardButton("🔄 Try Again", url=resume_url)])
+
+    # Written for users who are new to Telegram: it spells out what "joining
+    # a channel" means and exactly what to do next, step by step, instead of
+    # assuming the reader already knows the Join → Try Again flow. Formatted
+    # with clear visual sections (divider, bold headers, numbered steps) so
+    # it reads well as a Telegram message rather than a wall of text.
+    channel_word = "channel" if len(missing) == 1 else "channels"
+    await client.send_message(
+        chat_id,
+        "🔐 <b>ACCESS LOCKED</b>\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
+        f"<b>To unlock this bot, please join our {channel_word} first 👇</b>\n\n"
+        "📋 <b>Steps to continue:</b>\n"
+        f"　1️⃣ Tap the {channel_word} button below\n"
+        "　2️⃣ Join, then come back here\n"
+        "　3️⃣ Tap <b>🔄 Try Again</b>\n\n"
+        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        "✅ <i>That's it — you're in!</i>",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
 async def ensure_subscribed(client, message: Message) -> bool:
     """
     Returns True if the user may proceed. If not, sends the "please join"
@@ -80,30 +114,30 @@ async def ensure_subscribed(client, message: Message) -> bool:
     if not missing:
         return True
 
-    buttons = [[await _channel_join_button(client, ch)] for ch in missing]
     payload = message.command[1] if len(message.command) > 1 else ""
-    from config import BOT_USERNAME
-    resume_url = f"https://t.me/{BOT_USERNAME}?start={payload}" if payload else f"https://t.me/{BOT_USERNAME}?start=start"
-    buttons.append([InlineKeyboardButton("🔄 Try Again", url=resume_url)])
+    await _send_join_required(client, message.chat.id, missing, payload)
+    return False
 
-    # Written for users who are new to Telegram: it spells out what "joining
-    # a channel" means and exactly what to do next, step by step, instead of
-    # assuming the reader already knows the Join → Try Again flow. Formatted
-    # with clear visual sections (divider, bold headers, numbered steps) so
-    # it reads well as a Telegram message rather than a wall of text.
-    channel_word = "channel" if len(missing) == 1 else "channels"
-    await message.reply_text(
-        "🔐 <b>ACCESS LOCKED</b>\n"
-        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
-        f"<b>To unlock this bot, please join our {channel_word} first 👇</b>\n\n"
-        "📋 <b>Steps to continue:</b>\n"
-        f"　1️⃣ Tap the {channel_word} button below\n"
-        "　2️⃣ Join, then come back here\n"
-        "　3️⃣ Tap <b>🔄 Try Again</b>\n\n"
-        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
-        "✅ <i>That's it — you're in!</i>",
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+
+async def ensure_subscribed_for_user(
+    client, user_id: int, chat_id: int, resume_payload: str = ""
+) -> bool:
+    """Callback-query-friendly variant of ensure_subscribed() — for gating
+    actions triggered by an inline button tap (e.g. tapping a test paper in
+    the Test Series menu) rather than a /start command, where there's no
+    Message.command to pull a deep-link payload from. Pass resume_payload
+    explicitly (e.g. the paper's code) so 'Try Again' resumes exactly what
+    the user was trying to open."""
+    if not settings.get("force_sub_channels"):
+        return True
+    if is_admin(user_id):
+        return True
+
+    missing = await get_missing_channels(client, user_id)
+    if not missing:
+        return True
+
+    await _send_join_required(client, chat_id, missing, resume_payload)
     return False
 
 
@@ -119,4 +153,5 @@ async def track_join_request(client, chat_join_request):
     if chat_id in channel_ids or chat_join_request.chat.username in settings.get("force_sub_channels"):
         await db.record_join_request(chat_join_request.from_user.id, chat_id)
 
- 
+
+
