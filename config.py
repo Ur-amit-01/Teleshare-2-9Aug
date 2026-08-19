@@ -30,7 +30,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 # ---- Database ---------------------------------------------------------------
 DB_URL = os.environ.get("DB_URL", "mongodb://localhost:27017")
-DB_NAME = os.environ.get("DB_NAME", "Teststore_bot")
+DB_NAME = os.environ.get("DB_NAME", "filestore_bot")
 
 # ---- Access control ---------------------------------------------------------
 # Users who can upload files, run /setting, /broadcast, /stats, /delete, etc.
@@ -38,7 +38,7 @@ ADMINS = _as_id_list(os.environ.get("ADMINS", "7150972327"))
 
 # Private channel the bot backs every uploaded file up to.
 # The bot MUST be an admin there with post/delete rights.
-BACKUP_CHANNEL = int(os.environ.get("BACKUP_CHANNEL", "-1004419850758"))
+BACKUP_CHANNEL = int(os.environ.get("BACKUP_CHANNEL", "0"))
 
 # Optional channel the bot posts logs to (new users, new links, broadcasts...).
 # Set to 0 to disable.
