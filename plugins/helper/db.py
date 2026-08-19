@@ -186,9 +186,12 @@ class Database:
         return doc["user_id"] if doc else None
 
     # ================= Test series (institutes -> series -> papers) ================= #
-    # institute doc: {_id, name, created_at, series: [series_doc, ...]}
-    # series doc:    {id, name, papers: [paper_doc, ...]}
+    # institute doc: {_id, name, created_at, image, series: [series_doc, ...]}
+    # series doc:    {id, name, image, papers: [paper_doc, ...]}
     # paper doc:     {id, name, code}   <- code is a key into `files`
+    # `image` (institute/series) is a Telegram photo file_id, or missing/None
+    # if that level has no custom image — the browsing menu then renders as
+    # plain text instead of a photo message.
 
     async def create_institute(self, inst_id: str, name: str) -> bool:
         doc = {"_id": inst_id, "name": name, "series": [], "created_at": datetime.utcnow()}
@@ -227,6 +230,20 @@ class Database:
     async def delete_series(self, inst_id: str, series_id: str) -> bool:
         result = await self.institutes.update_one(
             {"_id": inst_id}, {"$pull": {"series": {"id": series_id}}}
+        )
+        return result.modified_count > 0
+
+    async def set_institute_image(self, inst_id: str, file_id: Optional[str]) -> bool:
+        """file_id=None clears the image (menu falls back to plain text)."""
+        result = await self.institutes.update_one(
+            {"_id": inst_id}, {"$set": {"image": file_id}}
+        )
+        return result.modified_count > 0
+
+    async def set_series_image(self, inst_id: str, series_id: str, file_id: Optional[str]) -> bool:
+        result = await self.institutes.update_one(
+            {"_id": inst_id, "series.id": series_id},
+            {"$set": {"series.$.image": file_id}},
         )
         return result.modified_count > 0
 
