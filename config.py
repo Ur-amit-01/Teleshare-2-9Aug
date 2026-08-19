@@ -29,7 +29,7 @@ API_HASH = os.environ.get("API_HASH", "5b0e07f5a96d48b704eb9850d274fe1d")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 # ---- Database ---------------------------------------------------------------
-DB_URL = os.environ.get("DB_URL", "mongodb://localhost:27017")
+DB_URL = os.environ.get("DB_URL", "mongodb+srv://uramit0001:EZ1u5bfKYZ52XeGT@cluster0.qnbzn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 DB_NAME = os.environ.get("DB_NAME", "Teststore_bot")
 
 # ---- Access control ---------------------------------------------------------
