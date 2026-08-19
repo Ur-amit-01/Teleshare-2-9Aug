@@ -24,17 +24,17 @@ def _as_id_list(raw: str):
 
 
 # ---- Telegram credentials -------------------------------------------------
-API_ID = int(os.environ.get("API_ID", "0"))
-API_HASH = os.environ.get("API_HASH", "")
+API_ID = int(os.environ.get("API_ID", "22012880"))
+API_HASH = os.environ.get("API_HASH", "5b0e07f5a96d48b704eb9850d274fe1d")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 # ---- Database ---------------------------------------------------------------
 DB_URL = os.environ.get("DB_URL", "mongodb://localhost:27017")
-DB_NAME = os.environ.get("DB_NAME", "filestore_bot")
+DB_NAME = os.environ.get("DB_NAME", "Teststore_bot")
 
 # ---- Access control ---------------------------------------------------------
 # Users who can upload files, run /setting, /broadcast, /stats, /delete, etc.
-ADMINS = _as_id_list(os.environ.get("ADMINS", ""))
+ADMINS = _as_id_list(os.environ.get("ADMINS", "7150972327"))
 
 # Private channel the bot backs every uploaded file up to.
 # The bot MUST be an admin there with post/delete rights.
