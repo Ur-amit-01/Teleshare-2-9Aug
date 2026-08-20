@@ -15,6 +15,7 @@ from pyrogram import Client, filters
 from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from plugins.helper.filters import admin_filter
+from plugins.helper.photo_ref import is_url_ref, store_photo_ref
 from plugins.helper.settings import settings, DEFAULTS
 from plugins.helper.start_message import _arrange_buttons
 from plugins.helper.time_parser import format_time, parse_time
@@ -163,7 +164,26 @@ def _has_pending_photo_setting(_, __, message: Message) -> bool:
 )
 async def setting_apply_photo(client, message: Message):
     AWAITING.pop(message.from_user.id)
-    await settings.set("start_photo", message.photo.file_id)
+
+    # Reposting into BACKUP_CHANNEL (rather than saving message.photo.file_id
+    # directly) is what makes this photo survive a future BOT_TOKEN swap —
+    # see plugins/helper/photo_ref.py. It also doubles as validation: a
+    # photo forwarded from a "restrict saving content" chat fails right
+    # here, immediately, instead of silently breaking every /start later.
+    try:
+        ref = await store_photo_ref(client, message.photo.file_id)
+    except Exception:
+        await message.reply_text(
+            "❌ Telegram won't let me reuse that image (this usually happens with "
+            "photos forwarded from a channel that has 'restrict saving content' "
+            "enabled).\n\nPlease send the image directly — e.g. save it to your "
+            "device and upload it fresh, rather than forwarding it — or paste a "
+            "direct image URL instead."
+        )
+        AWAITING[message.from_user.id] = "start_photo"  # let them retry
+        return
+
+    await settings.set("start_photo", ref)
     await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
 
 
@@ -186,7 +206,20 @@ async def setting_apply(client, message: Message):
             value = 0 if raw == "0" else parse_time(raw)
         elif key == "protect_content":
             value = raw.lower() in ("on", "true", "yes", "1")
-        elif key in ("start_text", "custom_caption", "leave_message", "start_photo"):
+        elif key == "start_photo":
+            if raw.lower() == "none":
+                value = ""
+            elif is_url_ref(raw):
+                value = raw
+            else:
+                await message.reply_text(
+                    "❌ That doesn't look like a direct image URL (must start with "
+                    "http:// or https://). Send a photo instead, paste a valid "
+                    "direct image link, or send 'none' to remove it."
+                )
+                AWAITING[message.from_user.id] = key  # let them retry
+                return
+        elif key in ("start_text", "custom_caption", "leave_message"):
             value = "" if raw.lower() == "none" else raw
         else:
             await message.reply_text("Unknown setting.")
