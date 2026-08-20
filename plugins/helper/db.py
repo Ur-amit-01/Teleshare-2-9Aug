@@ -189,9 +189,11 @@ class Database:
     # institute doc: {_id, name, created_at, image, series: [series_doc, ...]}
     # series doc:    {id, name, image, papers: [paper_doc, ...]}
     # paper doc:     {id, name, code}   <- code is a key into `files`
-    # `image` (institute/series) is a Telegram photo file_id, or missing/None
-    # if that level has no custom image — the browsing menu then renders as
-    # plain text instead of a photo message.
+    # `image` (institute/series) is an image reference (see
+    # plugins/helper/photo_ref.py) — a Telegram photo backed by
+    # BACKUP_CHANNEL, a direct URL, or missing/None if that level has no
+    # custom image — the browsing menu then renders as plain text instead
+    # of a photo message.
 
     async def create_institute(self, inst_id: str, name: str) -> bool:
         doc = {"_id": inst_id, "name": name, "series": [], "created_at": datetime.utcnow()}
@@ -268,3 +270,4 @@ class Database:
 # Single shared instance used by every plugin.
 db = Database(DB_URL, DB_NAME)
 
+          
