@@ -42,7 +42,19 @@ def _group_by_album(entries: list) -> list:
 
 async def _deliver_by_copy(client, user_id: int, entries: list, protect_content: bool) -> list:
     """Copy every group straight from the backup channel — no forward tag,
-    albums stay grouped."""
+    no caption/entity reprocessing, albums stay grouped. This is a bare
+    copy_message/copy_media_group call: whatever the backup-channel
+    message looks like right now (including any caption edits made
+    directly in Telegram, formatting and all) is exactly what gets
+    delivered, since Telegram/Pyrofork already carries captions and their
+    entities (bold, blockquote, etc.) over on a copy without needing any
+    extra caption= / parse_mode= override here.
+
+    Raises RuntimeError if any item couldn't be copied (e.g. the source
+    message in the backup channel was empty/deleted), so the caller falls
+    back to re-uploading from stored file_ids instead of silently losing
+    that item.
+    """
     sent = []
     for group in _group_by_album(entries):
         if len(group) > 1:
@@ -50,6 +62,10 @@ async def _deliver_by_copy(client, user_id: int, entries: list, protect_content:
                 user_id, BACKUP_CHANNEL, group[0]["message_id"],
                 protect_content=protect_content,
             )
+            if not copied or any(m is None for m in copied):
+                raise RuntimeError(
+                    f"copy_media_group returned an empty/None result for message_id={group[0]['message_id']}"
+                )
             sent.extend(copied)
         else:
             e = group[0]
@@ -57,6 +73,10 @@ async def _deliver_by_copy(client, user_id: int, entries: list, protect_content:
                 user_id, BACKUP_CHANNEL, e["message_id"],
                 protect_content=protect_content,
             )
+            if msg is None:
+                raise RuntimeError(
+                    f"copy_message returned None for message_id={e['message_id']} (likely empty/deleted source)"
+                )
             sent.append(msg)
     return sent
 
@@ -111,4 +131,4 @@ async def deliver(client, user_id: int, code: str) -> bool:
         await schedule_deletion(client, user_id, ids, delay, notice_id=notice_msg.id, code=code)
 
     return True
-  
+
