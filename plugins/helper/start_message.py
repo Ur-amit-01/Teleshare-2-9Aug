@@ -10,10 +10,16 @@ and the "🏠 Main Menu" / "⬅️ Back" buttons inside the Test Series menu
 Kept in its own module (rather than inside start.py) so deletion.py can
 import it without a circular import through delivery.py -> deletion.py.
 """
+import logging
+
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from plugins.helper.settings import settings
 from plugins.helper.db import db
+from plugins.helper.photo_ref import send_photo_ref
+
+logger = logging.getLogger(__name__)
+
 
 # A row is filled with buttons as long as the combined label length stays
 # under this, so short labels pair up while long ones get a full row to
@@ -75,9 +81,19 @@ async def send_start_message(client, chat_id: int, mention: str = None):
     text, reply_markup = await main_menu_content(mention)
     photo = settings.get("start_photo")
     if photo:
-        await client.send_photo(chat_id, photo=photo, caption=text, reply_markup=reply_markup)
-    else:
-        await client.send_message(
-            chat_id, text, disable_web_page_preview=True, reply_markup=reply_markup
-        )
-      
+        try:
+            await send_photo_ref(client, chat_id, photo, caption=text, reply_markup=reply_markup)
+            return
+        except Exception as e:
+            # A bad reference in start_photo (dead URL, a legacy file_id
+            # from before a BOT_TOKEN swap, etc.) must not take down every
+            # /start — fall through to the text-only send below instead of
+            # crashing the handler.
+            logger.warning(
+                f"start_photo ({photo!r}) failed to send, falling back to text-only: {e}"
+            )
+    await client.send_message(
+        chat_id, text, disable_web_page_preview=True, reply_markup=reply_markup
+    )
+
+    
