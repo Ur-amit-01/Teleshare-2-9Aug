@@ -66,6 +66,15 @@ resume anything still pending after a restart.
   every known user.
 * `/setting` — inline panel to edit force-sub channels, auto-delete timer,
   protect-content, start text, custom caption.
+* `/testseries` — manage the Institute → Test Series → Papers menu. Inside
+  "➕ Add Papers", send/forward every file for that one paper (e.g. each
+  page of a multi-part scan) — each is backed up as it arrives. Tap
+  ✅ Done (or send `/done`) once you've sent them all, and the bot asks a
+  single question for the whole batch: what name this paper should show
+  as. Only then is one link created for the whole batch and one paper
+  added. Add another paper by tapping "➕ Add Papers" again.
+* `/cancel` — clears any pending admin prompt (batch session, unsent link
+  confirmation, `/testseries` prompt, or `/setting` field edit).
 * `/stats` — users / links / files / uptime.
 
 ## Environment variables
@@ -99,3 +108,4 @@ docker run --env-file .env filestore-bot
 
 `app.py` is a minimal Flask app for platforms (Koyeb, Render, etc.) that require
 a bound port to keep a free-tier service alive; it doesn't do anything else.
+
