@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import time
@@ -137,7 +136,7 @@ def _not_awaiting_settings_reply(_, __, message: Message) -> bool:
         return False
     from plugins.filestore.test_series import AWAITING_TS
     state = AWAITING_TS.get(admin_id)
-    if state and state.get("action") in ("setinstimage", "setseriesimage"):
+    if state and state.get("action") in ("setinstimage", "setseriesimage", "addpapers"):
         return False
     return True
 
