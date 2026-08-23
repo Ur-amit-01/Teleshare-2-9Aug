@@ -19,10 +19,21 @@ Two halves live in this one file:
   ADMIN SIDE (callback prefix "tsa:", command /testseries)
     A panel in the same "tap a field, then reply with a message" style as
     /setting (see admin_settings.py). Institutes and series are created by
-    name; papers are attached by pasting the code/link of a file that was
-    already uploaded through the normal single-file or /batch flow (see
-    upload.py) — this feature never re-implements uploading, it only
-    organizes links that already exist.
+    name. Adding a paper is a batch flow: while "➕ Add Papers" is open, an
+    admin sends/forwards every file that belongs to this one paper (e.g.
+    each page of a multi-part scan) — each is backed up as it arrives (see
+    ts_apply_paper_media) but nothing is linked or attached to the series
+    yet. Tapping ✅ Done (or /done) asks a single question for the whole
+    batch — "what name should this paper show as?" — and only then is one
+    link created for all the collected files together and one paper
+    record added (see ts_apply_text's "naming_paper" branch). Adding
+    another paper means tapping "➕ Add Papers" again. The name always
+    comes from what the admin types, never from a caption or filename.
+    Pasting an existing "Label | CODE_OR_LINK" line still works too, for
+    reusing a file that was already uploaded elsewhere.
+    Every admin panel screen (including this flow's prompts) is rendered
+    through _render_panel, which edits the same message in place instead
+    of leaving a trail of new messages behind.
 
 Data lives in the `institutes` Mongo collection (plugins/helper/db.py):
 one doc per institute, embedding its own list of series, each embedding its
@@ -35,18 +46,20 @@ import secrets
 from pyrogram import Client, filters
 from pyrogram.errors import MessageNotModified
 from pyrogram.types import (
-    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message,
+    CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, Message,
 )
 
 from plugins.helper.db import db
 from plugins.helper.filters import admin_filter
 from plugins.helper.force_sub import ensure_subscribed_for_user
-from plugins.helper.photo_ref import send_photo_ref, store_photo_ref
+from plugins.helper.photo_ref import resolve_photo_source, send_photo_ref, store_photo_ref
 from plugins.helper.settings import settings
 from plugins.helper.start_message import _arrange_buttons, main_menu_content
 from plugins.filestore.delivery import deliver
-from plugins.filestore.linking import extract_code
-from plugins.filestore.upload import BATCH_SESSIONS
+from plugins.filestore.linking import save_link, extract_code
+from plugins.filestore.upload import (
+    BATCH_SESSIONS, MEDIA_FILTER, _finalize_entries, _pending_item,
+)
 from plugins.filestore.admin_settings import AWAITING as SETTINGS_AWAITING
 
 logger = logging.getLogger(__name__)
@@ -62,38 +75,53 @@ def _new_id() -> str:
 
 async def _edit_menu(client: Client, query: CallbackQuery, text: str, markup: InlineKeyboardMarkup,
                       photo: str = None):
-    """Renders a menu level.
+    """Renders a menu level by editing the current message in place
+    wherever Telegram allows it, so navigating between menus doesn't make
+    the chat jump around.
 
-    `photo` is the institute/series' own image (a Telegram file_id), or
-    None if that level has no custom image. Since each level can carry a
-    *different* image, this can't just be a caption edit.
+    `photo` is the institute/series' own image (a reference, see
+    plugins/helper/photo_ref.py), or None if that level has no custom
+    image. Telegram lets you edit a photo message's media (swap in a
+    different photo) or just its caption, and lets you edit a text
+    message's text — but it will NOT convert a message's type: a text
+    message can't become a photo message and vice versa. Those two
+    transitions are the only cases that still fall back to delete+resend.
 
-    This deliberately does NOT use edit_media to swap photos in place.
-    Telegram treats an edited message's media as new content and makes
-    clients re-fetch it every single time, even for a photo they already
-    downloaded on a previous visit — that's what was showing a download
-    arrow on every click. Instead, whenever a photo is involved, this
-    follows the same approach as the /start message's photo
-    (start_message.py): delete the old message and send a fresh one.
-    A freshly *sent* message with a given photo is cached normally by the
-    client, so revisiting an institute/series you've already viewed
-    doesn't re-trigger the download indicator — only the very first time
-    that particular image is shown does.
-
-    Pure text-to-text navigation (no photo at either end) is still edited
-    in place, since plain text has none of this media-caching behavior.
+    Trade-off: editing an existing photo message to a *different* photo
+    makes Telegram's clients treat it as new content and re-fetch it even
+    if that exact image was already downloaded on a previous visit —
+    showing a brief download indicator. That's accepted here in exchange
+    for the menu staying anchored in place instead of jumping to the
+    bottom of the chat on every tap.
     """
     msg = query.message
 
     if not photo and not msg.photo:
         try:
             await msg.edit_text(text, reply_markup=markup, disable_web_page_preview=True)
+        except MessageNotModified:
+            pass
+        return
+
+    if photo and msg.photo:
+        try:
+            source = await resolve_photo_source(client, photo)
+            await msg.edit_media(InputMediaPhoto(source, caption=text), reply_markup=markup)
             return
         except MessageNotModified:
             return
         except Exception as e:
-            logger.info(f"In-place text edit failed for test-series menu, resending: {e}")
+            logger.info(f"edit_media failed for test-series menu, trying caption-only edit: {e}")
+            try:
+                await msg.edit_caption(text, reply_markup=markup)
+                return
+            except MessageNotModified:
+                return
+            except Exception as e2:
+                logger.warning(f"Falling back to resend for test-series menu: {e2}")
 
+    # Type change (text-only <-> photo) — Telegram has no in-place edit for
+    # that, so this is the only remaining path that deletes and resends.
     try:
         await msg.delete()
     except Exception as e:
@@ -200,18 +228,119 @@ async def ts_paper(client: Client, query: CallbackQuery):
 # ADMIN SIDE — managing institutes / series / papers
 # ══════════════════════════════════════════════════════════════════════
 
-# admin_id -> {"action": str, "inst_id": Optional[str], "series_id": Optional[str]}
+# admin_id -> {"action": str, "inst_id": Optional[str], "series_id": Optional[str], ...}
 AWAITING_TS: dict = {}
 
+# admin_id -> list of finalized entries (already backed up, in the same
+# shape save_link()/db expects) collected during an open addpapers
+# session. Not yet turned into a link or attached to the series — that
+# happens once as a single unit after the admin names the whole batch.
+# Kept separate from AWAITING_TS so it survives the action switching from
+# "addpapers" to "naming_paper".
+PENDING_PAPER_ENTRIES: dict = {}
+
 ADD_PAPERS_HELP = (
-    "✏️ Send one paper per line, as:\n"
-    "<code>Label | CODE_OR_LINK</code>\n\n"
-    "Upload the PDF the normal way first (just send it to me, or use /batch) "
-    "to get its code/link, then paste it here — one line per paper.\n\n"
-    "<b>Example:</b>\n"
-    "<code>Test 1 | https://t.me/mybot?start=abcd1234\n"
+    "📎 <b>Send this paper's file(s) now.</b>\n"
+    "Forward or send them here — send everything that belongs to this one "
+    "paper (e.g. every page of a multi-part scan). Each file is backed up "
+    "as soon as it arrives.\n\n"
+    "Tap <b>✅ Done</b> (or send /done) once you've sent them all, and I'll "
+    "ask for this paper's name.\n\n"
+    "<i>Already uploaded a file elsewhere and just want to reuse its code?</i> "
+    "Send a line instead, as <code>Label | CODE_OR_LINK</code> — one per "
+    "line.\n<code>Test 1 | https://t.me/mybot?start=abcd1234\n"
     "Test 2 | efgh5678</code>"
 )
+
+
+def _has_pending_addpapers(_, __, message: Message) -> bool:
+    if not message.from_user or message.from_user.id not in AWAITING_TS:
+        return False
+    return AWAITING_TS[message.from_user.id]["action"] == "addpapers"
+
+
+def _done_adding_papers_markup(inst_id: str, series_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Done", callback_data=f"tsa:paperdone:{inst_id}:{series_id}"),
+    ]])
+
+
+def _collecting_status_text(count: int) -> str:
+    label = "file" if count == 1 else "files"
+    return ADD_PAPERS_HELP + f"\n\n<b>📥 {count} {label} received so far for this paper.</b> Send more, or tap ✅ Done."
+
+
+NAMING_PROMPT = "✏️ <b>What name should this paper show as?</b>\nSend the name users will see in the series list."
+
+
+@Client.on_message(
+    filters.private & admin_filter & MEDIA_FILTER & filters.create(_has_pending_addpapers)
+)
+async def ts_apply_paper_media(client: Client, message: Message):
+    """Backs up a file the moment it's sent while in addpapers mode and
+    adds it to this paper's batch. Nothing is linked or attached to the
+    series yet — that happens once, as a single unit, after the whole
+    batch is named (see _finish_addpapers / ts_apply_text's
+    'naming_paper' branch)."""
+    admin_id = message.from_user.id
+    state = AWAITING_TS.get(admin_id)
+    if not state:
+        return
+    inst_id, series_id = state["inst_id"], state["series_id"]
+
+    entries, failures = await _finalize_entries(client, [_pending_item(message)])
+    if not entries:
+        detail = failures[0][2] if failures else "unknown error"
+        await _render_panel(
+            client, message.chat.id,
+            f"❌ <b>Couldn't back that file up</b> — {_esc(detail)}\n\n"
+            + _collecting_status_text(len(PENDING_PAPER_ENTRIES.get(admin_id, []))),
+            _done_adding_papers_markup(inst_id, series_id),
+        )
+        return
+
+    PENDING_PAPER_ENTRIES.setdefault(admin_id, []).extend(entries)
+    try:
+        await message.react(emoji="👍")
+    except Exception:
+        pass
+
+    await _render_panel(
+        client, message.chat.id,
+        _collecting_status_text(len(PENDING_PAPER_ENTRIES[admin_id])),
+        _done_adding_papers_markup(inst_id, series_id),
+    )
+
+
+async def _finish_addpapers(client: Client, chat_id: int, admin_id: int, inst_id: str, series_id: str):
+    """Shared tail of Done (button or /done). Moves into the naming step
+    if any files were collected for this paper, otherwise just leaves the
+    mode with nothing added."""
+    entries = PENDING_PAPER_ENTRIES.pop(admin_id, [])
+    if not entries:
+        AWAITING_TS.pop(admin_id, None)
+        await _send_series_admin(client, chat_id, inst_id, series_id)
+        return
+
+    AWAITING_TS[admin_id] = {
+        "action": "naming_paper", "inst_id": inst_id, "series_id": series_id, "entries": entries,
+    }
+    await _render_panel(client, chat_id, NAMING_PROMPT, None)
+
+
+@Client.on_message(filters.command("done") & filters.private & admin_filter & filters.create(_has_pending_addpapers))
+async def ts_done_command(client: Client, message: Message):
+    state = AWAITING_TS.get(message.from_user.id)
+    if not state:
+        return
+    await _finish_addpapers(client, message.chat.id, message.from_user.id, state["inst_id"], state["series_id"])
+
+
+@Client.on_callback_query(filters.regex(r"^tsa:paperdone:") & admin_filter)
+async def tsa_paperdone(client: Client, query: CallbackQuery):
+    _, _, inst_id, series_id = query.data.split(":", 3)
+    await query.answer()
+    await _finish_addpapers(client, query.message.chat.id, query.from_user.id, inst_id, series_id)
 
 
 # chat_id -> message_id of the most recently shown /testseries admin
@@ -347,13 +476,16 @@ def _series_admin_buttons(inst: dict, series: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-async def _send_series_admin(client: Client, chat_id: int, inst_id: str, series_id: str):
+async def _send_series_admin(client: Client, chat_id: int, inst_id: str, series_id: str, note: str = None):
     inst = await db.get_institute(inst_id)
     series = next((s for s in (inst or {}).get("series", []) if s["id"] == series_id), None)
     if not inst or not series:
         await _send_institute_admin(client, chat_id, inst_id)
         return
-    await _render_panel(client, chat_id, _series_admin_text(inst, series), _series_admin_buttons(inst, series))
+    text = _series_admin_text(inst, series)
+    if note:
+        text = f"{note}\n\n{text}"
+    await _render_panel(client, chat_id, text, _series_admin_buttons(inst, series))
 
 
 @Client.on_message(filters.command("testseries") & filters.private & admin_filter)
@@ -457,9 +589,14 @@ async def tsa_delseriesimg(client: Client, query: CallbackQuery):
 @Client.on_callback_query(filters.regex(r"^tsa:addpapers:") & admin_filter)
 async def tsa_addpapers(client: Client, query: CallbackQuery):
     _, _, inst_id, series_id = query.data.split(":", 3)
-    AWAITING_TS[query.from_user.id] = {"action": "addpapers", "inst_id": inst_id, "series_id": series_id}
+    admin_id = query.from_user.id
+    AWAITING_TS[admin_id] = {"action": "addpapers", "inst_id": inst_id, "series_id": series_id}
+    PENDING_PAPER_ENTRIES[admin_id] = []
     await query.answer()
-    await query.message.reply_text(ADD_PAPERS_HELP)
+    await _render_panel(
+        client, query.message.chat.id, ADD_PAPERS_HELP,
+        _done_adding_papers_markup(inst_id, series_id),
+    )
 
 
 # ── Deletes (with confirmation) ─────────────────────────────────────────
@@ -609,7 +746,12 @@ async def ts_apply_image(client: Client, message: Message):
         await _send_series_admin(client, message.chat.id, state["inst_id"], state["series_id"])
 
 
-async def _apply_add_papers(client: Client, message: Message, inst_id: str, series_id: str):
+
+
+async def _apply_add_papers(message: Message, inst_id: str, series_id: str) -> str:
+    """Applies the 'Label | CODE_OR_LINK' paste fallback and returns a
+    report string for the caller to fold into the next panel render,
+    rather than sending its own separate message."""
     papers, errors = [], []
     for lineno, line in enumerate(message.text.strip().splitlines(), start=1):
         line = line.strip()
@@ -635,7 +777,7 @@ async def _apply_add_papers(client: Client, message: Message, inst_id: str, seri
     report = f"✅ Added {len(papers)} paper(s)." if papers else "❌ No papers were added."
     if errors:
         report += "\n\n⚠️ <b>Skipped:</b>\n" + "\n".join(_esc(e) for e in errors)
-    await message.reply_text(report)
+    return report
 
 
 @Client.on_message(filters.private & filters.text & admin_filter & filters.create(_has_pending_ts))
@@ -684,5 +826,33 @@ async def ts_apply_text(client: Client, message: Message):
         await _send_series_admin(client, message.chat.id, state["inst_id"], state["series_id"])
 
     elif action == "addpapers":
-        await _apply_add_papers(client, message, state["inst_id"], state["series_id"])
-        await _send_series_admin(client, message.chat.id, state["inst_id"], state["series_id"])
+        # Text sent while in addpapers mode is the paste-a-code fallback
+        # (files are handled by ts_apply_paper_media instead); re-arm the
+        # state afterwards so file uploads and further pastes keep working,
+        # folding the report into the same panel message rather than
+        # sending a new one.
+        report = await _apply_add_papers(message, state["inst_id"], state["series_id"])
+        AWAITING_TS[admin_id] = state
+        pending_count = len(PENDING_PAPER_ENTRIES.get(admin_id, []))
+        status_text = _collecting_status_text(pending_count) if pending_count else ADD_PAPERS_HELP
+        await _render_panel(
+            client, message.chat.id,
+            f"{report}\n\n{status_text}",
+            _done_adding_papers_markup(state["inst_id"], state["series_id"]),
+        )
+
+    elif action == "naming_paper":
+        name = raw
+        if not name:
+            AWAITING_TS[admin_id] = state
+            await _render_panel(
+                client, message.chat.id, "❌ <b>Name can't be empty.</b>\n\n" + NAMING_PROMPT, None
+            )
+            return
+
+        code = await save_link(admin_id, state["entries"], is_batch=len(state["entries"]) > 1)
+        await db.add_papers(state["inst_id"], state["series_id"], [
+            {"id": _new_id(), "name": name, "code": code}
+        ])
+        note = f"✅ <b>Added paper “{_esc(name)}”.</b>"
+        await _send_series_admin(client, message.chat.id, state["inst_id"], state["series_id"], note=note)
