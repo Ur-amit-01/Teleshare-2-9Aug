@@ -1,5 +1,6 @@
 import logging
 import sys
+from datetime import datetime, timedelta, timezone
 
 from pyrogram import Client
 
@@ -8,10 +9,23 @@ from config import API_ID, API_HASH, BOT_TOKEN
 from plugins.helper.settings import settings
 from plugins.filestore.deletion import restore_pending_deletions
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
-)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+
+class ISTFormatter(logging.Formatter):
+    """Koyeb's own log viewer always timestamps lines in UTC with no
+    timezone setting to change that — so instead this stamps the log
+    *content* itself in IST (Asia/Kolkata, UTC+5:30), which is what you'll
+    actually read inside each line regardless of what Koyeb's UI chrome
+    shows next to it."""
+    def formatTime(self, record, datefmt=None):
+        dt = datetime.fromtimestamp(record.created, tz=IST)
+        return dt.strftime(datefmt or "%Y-%m-%d %H:%M:%S %Z")
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(ISTFormatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[handler])
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
@@ -87,4 +101,4 @@ class Bot(Client):
 if __name__ == "__main__":
     check_env()
     Bot().run()
-    
+
