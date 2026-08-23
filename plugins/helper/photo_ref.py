@@ -60,3 +60,16 @@ async def send_photo_ref(client, chat_id: int, ref: str, caption: str = None, re
         )
     return await client.send_photo(chat_id, photo=ref, caption=caption, reply_markup=reply_markup)
 
+
+async def resolve_photo_source(client, ref: str) -> str:
+    """Returns a usable photo source (a URL or file_id) for APIs that need
+    actual media rather than a reference — e.g. InputMediaPhoto for
+    edit_media — by resolving a 'backup:<message_id>' reference to the
+    file_id of the photo living in BACKUP_CHANNEL. URL refs and legacy raw
+    file_ids pass through unchanged."""
+    if ref.startswith(_PREFIX):
+        message_id = int(ref[len(_PREFIX):])
+        msg = await client.get_messages(BACKUP_CHANNEL, message_id)
+        return msg.photo.file_id
+    return ref
+
