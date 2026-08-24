@@ -48,6 +48,11 @@ def _not_a_command(_, __, message: Message) -> bool:
 
 FEEDBACK_FILTER = (
     filters.private
+    & filters.incoming  # never react to the bot's own messages — see note
+                         # below; without this, two overlapping instances
+                         # (e.g. mid-restart) can echo a bot-sent message
+                         # back and forth as if it were user feedback,
+                         # flooding the admin's DM.
     & filters.create(_not_admin)
     & filters.create(_not_a_command)
 )
@@ -116,7 +121,7 @@ async def relay_admin_reply(client: Client, message: Message):
     try:
         await message.copy(user_id)
         try:
-            await message.react(emoji="✅")
+            await message.react(emoji="👍🏻")
         except Exception:
             pass
     except (UserIsBlocked, InputUserDeactivated, PeerIdInvalid):
@@ -126,3 +131,4 @@ async def relay_admin_reply(client: Client, message: Message):
     except Exception as e:
         logger.warning(f"Failed to relay admin reply to user {user_id}: {e}")
         await message.reply_text(f"⚠️ Couldn't deliver your reply: {e}")
+     
