@@ -490,6 +490,12 @@ async def _send_series_admin(client: Client, chat_id: int, inst_id: str, series_
 
 @Client.on_message(filters.command("testseries") & filters.private & admin_filter)
 async def testseries_panel(client: Client, message: Message):
+    # Re-running the command should always post a fresh panel where the
+    # admin is currently looking, not silently edit whatever panel message
+    # was last shown (which may have scrolled far out of view by now, or
+    # be unchanged and therefore a no-op edit that produces no visible
+    # message at all). Only in-panel button taps should edit in place.
+    LAST_PANEL_MSG.pop(message.chat.id, None)
     await _send_admin_panel(client, message.chat.id)
 
 
