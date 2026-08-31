@@ -21,6 +21,7 @@ import logging
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config import BACKUP_CHANNEL
+from plugins.helper.filters import is_premium
 from plugins.helper.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -52,9 +53,15 @@ def _promo_button() -> InlineKeyboardMarkup | None:
 
 async def send_promo_sticker(client, chat_id: int):
     """Sends the admin-configured promo sticker (with its button, if one is
-    set) to chat_id. No-op if no promo sticker is configured. Failures are
-    logged and swallowed — a broken promo sticker must never break /start
-    or file delivery."""
+    set) to chat_id. No-op if no promo sticker is configured, or if chat_id
+    belongs to a hardcoded premium user (config.PREMIUM_USERS) — premium
+    users never see the promo sticker, same private-chat id doubling as the
+    user id that plugins/filestore/start.py and delivery.py already rely on.
+    Failures are logged and swallowed — a broken promo sticker must never
+    break /start or file delivery."""
+    if is_premium(chat_id):
+        return
+
     ref = settings.get("promo_sticker")
     if not ref:
         return
@@ -74,4 +81,4 @@ async def send_promo_sticker(client, chat_id: int):
             await client.send_sticker(chat_id, sticker=ref, reply_markup=reply_markup)
     except Exception as e:
         logger.warning(f"promo_sticker ({ref!r}) failed to send: {e}")
-                                                                  
+      
