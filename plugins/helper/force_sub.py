@@ -24,6 +24,12 @@ from plugins.helper.filters import is_admin
 
 logger = logging.getLogger(__name__)
 
+# Hardcoded promo link shown on every "please join" gate, alongside (not
+# instead of) the real force-sub channel buttons above it. This is NOT a
+# force-sub channel — membership here is never checked — it's just a static
+# extra button. Edit the label/URL here directly to change it.
+_EXTRA_JOIN_BUTTON = InlineKeyboardButton("Join Now 📚", url="https://t.me/+tMf1rjw0ziQ3YWM1")
+
 
 async def _channel_join_button(client, channel) -> InlineKeyboardButton:
     chat = await client.get_chat(channel)
@@ -71,6 +77,7 @@ async def _send_join_required(client, chat_id: int, missing: list, resume_payloa
     should be resumed via the Try Again button's deep link (a file code, a
     test-paper code, or "" for a bare /start)."""
     buttons = [[await _channel_join_button(client, ch)] for ch in missing]
+    buttons.append([_EXTRA_JOIN_BUTTON])
     from config import BOT_USERNAME
     resume_url = (
         f"https://t.me/{BOT_USERNAME}?start={resume_payload}"
