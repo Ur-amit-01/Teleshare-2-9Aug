@@ -20,7 +20,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from plugins.helper.db import db
 from plugins.helper.settings import settings
-from plugins.helper.filters import is_admin
+from plugins.helper.filters import is_admin, is_premium
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ async def ensure_subscribed(client, message: Message) -> bool:
     """
     if not settings.get("force_sub_channels"):
         return True
-    if message.from_user and is_admin(message.from_user.id):
+    if message.from_user and (is_admin(message.from_user.id) or is_premium(message.from_user.id)):
         return True
 
     missing = await get_missing_channels(client, message.from_user.id)
@@ -136,7 +136,7 @@ async def ensure_subscribed_for_user(
     the user was trying to open."""
     if not settings.get("force_sub_channels"):
         return True
-    if is_admin(user_id):
+    if is_admin(user_id) or is_premium(user_id):
         return True
 
     missing = await get_missing_channels(client, user_id)
