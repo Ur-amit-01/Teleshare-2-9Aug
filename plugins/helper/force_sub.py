@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # instead of) the real force-sub channel buttons above it. This is NOT a
 # force-sub channel — membership here is never checked — it's just a static
 # extra button. Edit the label/URL here directly to change it.
-_EXTRA_JOIN_BUTTON = InlineKeyboardButton("Join Now 📚", url="https://t.me/+tMf1rjw0ziQ3YWM1")
+_EXTRA_JOIN_BUTTON = InlineKeyboardButton("⚠️ ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ ɴᴏᴡ ⚠️", url="https://t.me/+tMf1rjw0ziQ3YWM1")
 
 
 async def _channel_join_button(client, channel) -> InlineKeyboardButton:
@@ -37,7 +37,7 @@ async def _channel_join_button(client, channel) -> InlineKeyboardButton:
         url = f"https://t.me/{chat.username}"
     else:
         url = chat.invite_link or (await client.export_chat_invite_link(chat.id))
-    return InlineKeyboardButton(f"➕ Join {chat.title}", url=url)
+    return InlineKeyboardButton(f"Join {chat.title}", url=url)
 
 
 async def get_missing_channels(client, user_id: int) -> list:
@@ -92,18 +92,17 @@ async def _send_join_required(client, chat_id: int, missing: list, resume_payloa
     # it reads well as a Telegram message rather than a wall of text.
     channel_word = "channel" if len(missing) == 1 else "channels"
     await client.send_message(
-        chat_id,
-        "🔐 <b>ACCESS LOCKED</b>\n"
-        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
-        f"<b>To unlock this bot, please join our {channel_word} first 👇</b>\n\n"
-        "📋 <b>Steps to continue:</b>\n"
-        f"　1️⃣ Tap the {channel_word} button below\n"
-        "　2️⃣ Join, then come back here\n"
-        "　3️⃣ Tap <b>🔄 Try Again</b>\n\n"
-        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
-        "✅ <i>That's it — you're in!</i>",
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+    chat_id,
+    "🔐 <b>ᴀᴄᴄᴇss ʟᴏᴄᴋᴇᴅ</b>\n"
+    "━━━━━━━━━━━━━━━━━━\n\n"
+    f"🔒 <b>ᴊᴏɪɴ ᴏᴜʀ {channel_word} ᴛᴏ ᴜɴʟᴏᴄᴋ 👇</b>\n\n"
+    "1️⃣ ᴊᴏɪɴ ᴛʜᴇ ᴄʜᴀɴɴᴇʟs\n"
+    "2️⃣ ᴄᴏᴍᴇ ʙᴀᴄᴋ ʜᴇʀᴇ\n"
+    "3️⃣ ᴛᴀᴘ <b>🔄 ᴛʀʏ ᴀɢᴀɪɴ</b>\n\n"
+    "━━━━━━━━━━━━━━━━━━\n"
+    "✅ <i>ᴊᴏɪɴ → ʀᴇᴛᴜʀɴ → ᴛʀʏ ᴀɢᴀɪɴ</i>",
+    reply_markup=InlineKeyboardMarkup(buttons),
+)
 
 
 async def ensure_subscribed(client, message: Message) -> bool:
