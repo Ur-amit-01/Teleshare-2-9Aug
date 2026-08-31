@@ -36,6 +36,17 @@ DB_NAME = os.environ.get("DB_NAME", "Teststore_bot")
 # Users who can upload files, run /setting, /broadcast, /stats, /delete, etc.
 ADMINS = _as_id_list(os.environ.get("ADMINS", "7150972327"))
 
+# Hardcoded premium user ids — exempt from force-sub gating and from the
+# promotional sticker (see plugins/helper/filters.py:is_premium(),
+# plugins/helper/force_sub.py, plugins/helper/promo.py). Edit this list
+# directly to add/remove premium users; no restart-free way to manage this
+# yet, unlike the DB-backed settings.
+PREMIUM_USERS = [
+    1519459773,
+    5753557653,
+    7191448865,
+]
+
 # Private channel the bot backs every uploaded file up to.
 # The bot MUST be an admin there with post/delete rights.
 BACKUP_CHANNEL = int(os.environ.get("BACKUP_CHANNEL", "-1004419850758"))
@@ -70,4 +81,4 @@ def missing_required():
     if not BACKUP_CHANNEL:
         problems.append(("BACKUP_CHANNEL", "the backup channel's id, e.g. '-1001234567890'"))
     return problems
-    
+
