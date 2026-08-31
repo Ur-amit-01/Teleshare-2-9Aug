@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # instead of) the real force-sub channel buttons above it. This is NOT a
 # force-sub channel — membership here is never checked — it's just a static
 # extra button. Edit the label/URL here directly to change it.
-_EXTRA_JOIN_BUTTON = InlineKeyboardButton("⚠️ ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ ɴᴏᴡ ⚠️", url="https://t.me/+tMf1rjw0ziQ3YWM1")
+_EXTRA_JOIN_BUTTON = InlineKeyboardButton("⚠️ ᴄʟɪᴄᴋ ʜᴇʀᴇ ᴛᴏ ᴊᴏɪɴ ⚠️", url="https://t.me/+tMf1rjw0ziQ3YWM1")
 
 
 async def _channel_join_button(client, channel) -> InlineKeyboardButton:
@@ -37,7 +37,7 @@ async def _channel_join_button(client, channel) -> InlineKeyboardButton:
         url = f"https://t.me/{chat.username}"
     else:
         url = chat.invite_link or (await client.export_chat_invite_link(chat.id))
-    return InlineKeyboardButton(f"Join {chat.title}", url=url)
+    return InlineKeyboardButton(f"⚠️ Join {chat.title} ⚠️", url=url)
 
 
 async def get_missing_channels(client, user_id: int) -> list:
