@@ -7,6 +7,7 @@ from pyrogram.types import CallbackQuery, Message
 import config
 from plugins.helper.db import db
 from plugins.helper.force_sub import ensure_subscribed
+from plugins.helper.promo import send_promo_sticker
 from plugins.helper.start_message import send_start_message
 from plugins.filestore.delivery import deliver
 
@@ -50,6 +51,7 @@ async def start(client, message: Message):
         return
 
     await send_start_message(client, message.chat.id, message.from_user.mention)
+    await send_promo_sticker(client, message.chat.id)
 
 
 @Client.on_callback_query(filters.regex(r"^trigger:start$"))
@@ -62,4 +64,5 @@ async def start_via_button(client, query: CallbackQuery):
         await _notify_admins_new_user(client, query.from_user)
     await query.answer()
     await send_start_message(client, query.message.chat.id, query.from_user.mention)
-    
+    await send_promo_sticker(client, query.message.chat.id)
+
