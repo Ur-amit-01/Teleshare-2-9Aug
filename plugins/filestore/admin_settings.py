@@ -16,6 +16,7 @@ from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 
 from plugins.helper.filters import admin_filter
 from plugins.helper.photo_ref import is_url_ref, store_photo_ref
+from plugins.helper.promo import store_promo_sticker_ref
 from plugins.helper.settings import settings, DEFAULTS
 from plugins.helper.start_message import _arrange_buttons
 from plugins.helper.time_parser import format_time, parse_time
@@ -31,6 +32,9 @@ FIELD_LABELS = {
     "start_photo": "Start message photo — send a photo, or reply with a direct image URL, or 'none' to remove it",
     "custom_caption": "Extra caption line appended to delivered files (or 'none')",
     "leave_message": "DM sent when a user leaves a force-sub channel (use {mention}, {chat_title}, or 'none' to disable)",
+    "promo_sticker": "Promotional sticker — send a sticker, or 'none' to remove it (sent after the start message and after every file delivery)",
+    "promo_button_text": "Promo sticker button label (or 'none' to remove the button)",
+    "promo_button_url": "Promo sticker button URL — must start with http:// or https:// (or 'none' to remove the button)",
 }
 
 
@@ -45,7 +49,9 @@ def _panel_text() -> str:
         f"• Protect content: <code>{s['protect_content']}</code>\n"
         f"• Custom caption: <code>{s['custom_caption'] or 'none'}</code>\n"
         f"• Start photo: <code>{'set' if s.get('start_photo') else 'none'}</code>\n"
-        f"• Leave message: <code>{'enabled' if s['leave_message'] else 'disabled'}</code>\n\n"
+        f"• Leave message: <code>{'enabled' if s['leave_message'] else 'disabled'}</code>\n"
+        f"• Promo sticker: <code>{'set' if s.get('promo_sticker') else 'none'}</code>\n"
+        f"• Promo button: <code>{s['promo_button_text'] + ' -> ' + s['promo_button_url'] if s.get('promo_button_text') and s.get('promo_button_url') else 'none'}</code>\n\n"
         "Tap a field below to change it."
     )
 
@@ -63,6 +69,9 @@ def _panel_buttons() -> InlineKeyboardMarkup:
         InlineKeyboardButton("🖼 Start photo", callback_data="setting:start_photo"),
         InlineKeyboardButton("💬 Custom caption", callback_data="setting:custom_caption"),
         InlineKeyboardButton("💔 Leave message", callback_data="setting:leave_message"),
+        InlineKeyboardButton("🎉 Promo sticker", callback_data="setting:promo_sticker"),
+        InlineKeyboardButton("🔗 Promo button text", callback_data="setting:promo_button_text"),
+        InlineKeyboardButton("🔗 Promo button URL", callback_data="setting:promo_button_url"),
     ]
     rows = _arrange_buttons(field_buttons)
     # Reset stays on its own full-width row — it's a destructive action,
@@ -159,6 +168,13 @@ def _has_pending_photo_setting(_, __, message: Message) -> bool:
     )
 
 
+def _has_pending_sticker_setting(_, __, message: Message) -> bool:
+    return (
+        message.from_user is not None
+        and AWAITING.get(message.from_user.id) == "promo_sticker"
+    )
+
+
 @Client.on_message(
     filters.private & filters.photo & admin_filter & filters.create(_has_pending_photo_setting)
 )
@@ -184,6 +200,30 @@ async def setting_apply_photo(client, message: Message):
         return
 
     await settings.set("start_photo", ref)
+    await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
+
+
+@Client.on_message(
+    filters.private & filters.sticker & admin_filter & filters.create(_has_pending_sticker_setting)
+)
+async def setting_apply_sticker(client, message: Message):
+    AWAITING.pop(message.from_user.id)
+
+    # Same BACKUP_CHANNEL-repost trick as the start photo above, so the
+    # promo sticker survives a future BOT_TOKEN swap — see
+    # plugins/helper/promo.py.
+    try:
+        ref = await store_promo_sticker_ref(client, message.sticker.file_id)
+    except Exception:
+        await message.reply_text(
+            "❌ Telegram won't let me reuse that sticker (this usually happens with "
+            "stickers forwarded from a chat that has 'restrict saving content' "
+            "enabled).\n\nPlease send the sticker directly rather than forwarding it."
+        )
+        AWAITING[message.from_user.id] = "promo_sticker"  # let them retry
+        return
+
+    await settings.set("promo_sticker", ref)
     await message.reply_text(_panel_text(), reply_markup=_panel_buttons())
 
 
@@ -219,7 +259,30 @@ async def setting_apply(client, message: Message):
                 )
                 AWAITING[message.from_user.id] = key  # let them retry
                 return
-        elif key in ("start_text", "custom_caption", "leave_message"):
+        elif key == "promo_sticker":
+            if raw.lower() == "none":
+                value = ""
+            else:
+                await message.reply_text(
+                    "❌ That's not a sticker. Send a sticker directly, or send "
+                    "'none' to remove the promo sticker."
+                )
+                AWAITING[message.from_user.id] = key  # let them retry
+                return
+        elif key == "promo_button_url":
+            if raw.lower() == "none":
+                value = ""
+            elif is_url_ref(raw):
+                value = raw
+            else:
+                await message.reply_text(
+                    "❌ That doesn't look like a direct URL (must start with "
+                    "http:// or https://). Send a valid URL, or 'none' to remove "
+                    "the promo button."
+                )
+                AWAITING[message.from_user.id] = key  # let them retry
+                return
+        elif key in ("start_text", "custom_caption", "leave_message", "promo_button_text"):
             value = "" if raw.lower() == "none" else raw
         else:
             await message.reply_text("Unknown setting.")
