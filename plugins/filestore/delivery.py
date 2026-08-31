@@ -16,6 +16,7 @@ import logging
 from config import BACKUP_CHANNEL
 from plugins.helper.db import db
 from plugins.helper.media import build_input_media, send_by_file_id
+from plugins.helper.promo import send_promo_sticker
 from plugins.helper.settings import settings
 from plugins.filestore.deletion import schedule_deletion
 from plugins.helper.time_parser import format_time
@@ -130,5 +131,12 @@ async def deliver(client, user_id: int, code: str) -> bool:
         # again" button once everything's gone).
         await schedule_deletion(client, user_id, ids, delay, notice_id=notice_msg.id, code=code)
 
+    # Fired after every successful delivery — bare file link, test-series
+    # paper, doesn't matter which caller — so it's here rather than
+    # duplicated in each caller (plugins/filestore/start.py and
+    # plugins/filestore/test_series.py).
+    await send_promo_sticker(client, user_id)
+
     return True
+
 
