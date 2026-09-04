@@ -41,7 +41,11 @@ ADMINS = _as_id_list(os.environ.get("ADMINS", "7150972327"))
 # plugins/helper/force_sub.py, plugins/helper/promo.py). Edit this list
 # directly to add/remove premium users; no restart-free way to manage this
 # yet, unlike the DB-backed settings.
-PREMIUM_USERS = _as_id_list(os.environ.get("PREMIUM_USERS", ""))
+PREMIUM_USERS = [
+    1519459773,
+    5753557653,
+    7191448865,
+]
 
 # Private channel the bot backs every uploaded file up to.
 # The bot MUST be an admin there with post/delete rights.
