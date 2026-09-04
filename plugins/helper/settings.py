@@ -63,6 +63,16 @@ DEFAULTS: Dict[str, Any] = {
         "We really don't want to lose you like this. Come back? "
         "It only takes a second and we'd love to have you around again."
     ),
+    # "promo_sticker:<message_id>" reference (see plugins/helper/promo.py) to
+    # a sticker sent right after the start message, and again right after
+    # every file delivery. "" = feature disabled, no sticker sent.
+    "promo_sticker": "",
+    # label for the single button shown under the promo sticker. Both this
+    # and promo_button_url must be set for the button to appear.
+    "promo_button_text": "",
+    # URL the promo button opens. Both this and promo_button_text must be
+    # set for the button to appear.
+    "promo_button_url": "",
 }
 
 
