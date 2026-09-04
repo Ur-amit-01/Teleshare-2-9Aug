@@ -29,6 +29,13 @@ _MAX_ROW_WIDTH = 30
 # wise, more than this starts looking cramped on narrow phone screens.
 _MAX_PER_ROW = 2
 
+# Static extra button shown below the institute buttons on every start
+# menu — not tied to institutes/DB, just a fixed link. Edit the label/URL
+# here to change it.
+_BOOKS_MODULES_BUTTON = InlineKeyboardButton(
+    "📚 Books & Modules", url="https://t.me/MBBS_Pagluu_bot"
+)
+
 
 def _arrange_buttons(buttons: list) -> list:
     """Greedily pack InlineKeyboardButton objects into rows, using each
@@ -53,13 +60,13 @@ def _arrange_buttons(buttons: list) -> list:
 
 async def _institutes_keyboard() -> InlineKeyboardMarkup | None:
     institutes = await db.get_all_institutes()
-    if not institutes:
-        return None
     buttons = [
         InlineKeyboardButton(f"🏫 {inst['name']}", callback_data=f"ts:inst:{inst['_id']}")
         for inst in institutes
-    ]
-    return InlineKeyboardMarkup(_arrange_buttons(buttons))
+    ] if institutes else []
+    rows = _arrange_buttons(buttons) if buttons else []
+    rows.append([_BOOKS_MODULES_BUTTON])
+    return InlineKeyboardMarkup(rows)
 
 
 async def main_menu_content(mention: str = None):
@@ -95,5 +102,4 @@ async def send_start_message(client, chat_id: int, mention: str = None):
     await client.send_message(
         chat_id, text, disable_web_page_preview=True, reply_markup=reply_markup
     )
-
     
