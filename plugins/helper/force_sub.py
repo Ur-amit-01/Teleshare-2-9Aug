@@ -5,7 +5,7 @@ bot not admin in the channel, buttons not showing, "request to join" not
 being recognized, etc.) there's exactly one file to open.
 
 Contains:
-  * _channel_join_button -> builds the "➕ Join X" button for one channel
+  * _channel_join_button -> builds the "⚠️ Join N ⚠️" button for one channel
   * get_missing_channels -> which force-sub channels a user hasn't joined
   * ensure_subscribed    -> the gate called at the top of /start
   * track_join_request   -> records "request to join" submissions so
@@ -27,17 +27,19 @@ logger = logging.getLogger(__name__)
 # Hardcoded promo link shown on every "please join" gate, alongside (not
 # instead of) the real force-sub channel buttons above it. This is NOT a
 # force-sub channel — membership here is never checked — it's just a static
-# extra button. Edit the label/URL here directly to change it.
-_EXTRA_JOIN_BUTTON = InlineKeyboardButton("⚠️ ᴄʟɪᴄᴋ ʜᴇʀᴇ ᴛᴏ ᴊᴏɪɴ ⚠️", url="https://t.me/+tMf1rjw0ziQ3YWM1")
+# extra button. Its number continues on from the force-sub channel buttons
+# (e.g. 1 force channel -> this becomes "ᴊᴏɪɴ 2"), so it's built inside
+# _send_join_required() rather than as a fixed constant. Edit the URL here.
+_EXTRA_JOIN_URL = "https://t.me/+tMf1rjw0ziQ3YWM1"
 
 
-async def _channel_join_button(client, channel) -> InlineKeyboardButton:
+async def _channel_join_button(client, channel, index: int) -> InlineKeyboardButton:
     chat = await client.get_chat(channel)
     if chat.username:
         url = f"https://t.me/{chat.username}"
     else:
         url = chat.invite_link or (await client.export_chat_invite_link(chat.id))
-    return InlineKeyboardButton(f"⚠️ Join {chat.title} ⚠️", url=url)
+    return InlineKeyboardButton(f"⚠️ ᴊᴏɪɴ {index} ⚠️", url=url)
 
 
 async def get_missing_channels(client, user_id: int) -> list:
@@ -76,33 +78,30 @@ async def _send_join_required(client, chat_id: int, missing: list, resume_payloa
     builds and sends the "please join" message. `resume_payload` is whatever
     should be resumed via the Try Again button's deep link (a file code, a
     test-paper code, or "" for a bare /start)."""
-    buttons = [[await _channel_join_button(client, ch)] for ch in missing]
-    buttons.append([_EXTRA_JOIN_BUTTON])
+    buttons = [
+        [await _channel_join_button(client, ch, i)]
+        for i, ch in enumerate(missing, start=1)
+    ]
+    extra_index = len(missing) + 1
+    buttons.append([InlineKeyboardButton(f"⚠️ ᴊᴏɪɴ {extra_index} ⚠️", url=_EXTRA_JOIN_URL)])
     from config import BOT_USERNAME
     resume_url = (
         f"https://t.me/{BOT_USERNAME}?start={resume_payload}"
         if resume_payload else f"https://t.me/{BOT_USERNAME}?start=start"
     )
-    buttons.append([InlineKeyboardButton("🔄 Try Again", url=resume_url)])
+    buttons.append([InlineKeyboardButton("🔄 ᴛʀʏ ᴀɢᴀɪɴ", url=resume_url)])
 
-    # Written for users who are new to Telegram: it spells out what "joining
-    # a channel" means and exactly what to do next, step by step, instead of
-    # assuming the reader already knows the Join → Try Again flow. Formatted
-    # with clear visual sections (divider, bold headers, numbered steps) so
-    # it reads well as a Telegram message rather than a wall of text.
-    channel_word = "channel" if len(missing) == 1 else "channels"
+    # Small-caps unicode message explaining the gate: due to heavy load,
+    # only channel subscribers can use the bot right now.
+    channel_word = "ᴄʜᴀɴɴᴇʟ" if len(missing) == 1 else "ᴄʜᴀɴɴᴇʟs"
     await client.send_message(
-    chat_id,
-    "🔐 <b>ᴀᴄᴄᴇss ʟᴏᴄᴋᴇᴅ</b>\n"
-    "━━━━━━━━━━━━━━━━━━\n\n"
-    f"🔒 <b>ᴊᴏɪɴ ᴏᴜʀ {channel_word} ᴛᴏ ᴜɴʟᴏᴄᴋ 👇</b>\n\n"
-    "1️⃣ ᴊᴏɪɴ ᴛʜᴇ ᴄʜᴀɴɴᴇʟs\n"
-    "2️⃣ ᴄᴏᴍᴇ ʙᴀᴄᴋ ʜᴇʀᴇ\n"
-    "3️⃣ ᴛᴀᴘ <b>🔄 ᴛʀʏ ᴀɢᴀɪɴ</b>\n\n"
-    "━━━━━━━━━━━━━━━━━━\n"
-    "✅ <i>ᴊᴏɪɴ → ʀᴇᴛᴜʀɴ → ᴛʀʏ ᴀɢᴀɪɴ</i>",
-    reply_markup=InlineKeyboardMarkup(buttons),
-)
+        chat_id,
+        "🔐 <b>ᴀᴄᴄᴇss ʟᴏᴄᴋᴇᴅ</b>\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        f"ᴅᴜᴇ ᴛᴏ ʜᴇᴀᴠʏ ʟᴏᴀᴅ ᴏɴ ᴛʜɪs ʙᴏᴛ, ᴏɴʟʏ ᴏᴜʀ {channel_word} sᴜʙsᴄʀɪʙᴇʀs ᴄᴀɴ ᴜsᴇ ᴛʜɪs ʙᴏᴛ.\n\n"
+        f"ᴊᴏɪɴ ᴛʜᴇ {channel_word} ᴜsɪɴɢ ᴛʜᴇ ʙᴜᴛᴛᴏɴs ʙᴇʟᴏᴡ, ᴛʜᴇɴ ᴛᴀᴘ <b>🔄 ᴛʀʏ ᴀɢᴀɪɴ</b>.",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
 
 
 async def ensure_subscribed(client, message: Message) -> bool:
@@ -158,6 +157,4 @@ async def track_join_request(client, chat_join_request):
     chat_id = chat_join_request.chat.id
     if chat_id in channel_ids or chat_join_request.chat.username in settings.get("force_sub_channels"):
         await db.record_join_request(chat_join_request.from_user.id, chat_id)
-
-
-
+     
