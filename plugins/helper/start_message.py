@@ -21,6 +21,13 @@ _MAX_ROW_WIDTH = 30
 # wise, more than this starts looking cramped on narrow phone screens.
 _MAX_PER_ROW = 2
 
+# Static extra button shown below the material buttons on every start
+# menu — not tied to start_materials, just a fixed link. Edit the label/URL
+# here to change it.
+_TEST_SERIES_BUTTON = InlineKeyboardButton(
+    "📝 Test Series Bot", url="https://t.me/NEETopedia_test_bot"
+)
+
 
 def _arrange_buttons(buttons: list) -> list:
     """Greedily pack InlineKeyboardButton objects into rows, using each
@@ -43,15 +50,15 @@ def _arrange_buttons(buttons: list) -> list:
     return rows
 
 
-def _materials_keyboard() -> InlineKeyboardMarkup | None:
+def _materials_keyboard() -> InlineKeyboardMarkup:
     materials = settings.get("start_materials") or []
-    if not materials:
-        return None
     buttons = [
         InlineKeyboardButton(label, url=build_deep_link(code))
         for label, code in materials
     ]
-    return InlineKeyboardMarkup(_arrange_buttons(buttons))
+    rows = _arrange_buttons(buttons) if buttons else []
+    rows.append([_TEST_SERIES_BUTTON])
+    return InlineKeyboardMarkup(rows)
 
 
 async def send_start_message(client, chat_id: int, mention: str = None):
@@ -72,5 +79,4 @@ async def send_start_message(client, chat_id: int, mention: str = None):
         await client.send_message(
             chat_id, text, disable_web_page_preview=True, reply_markup=reply_markup
         )
-
-  
+      
