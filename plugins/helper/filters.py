@@ -12,7 +12,7 @@ this one.
 from pyrogram import filters
 from pyrogram.types import Message
 
-from config import ADMINS
+from config import ADMINS, PREMIUM_USERS
 
 # ---------------------------------------------------------------- admin ---- #
 
@@ -26,4 +26,14 @@ admin_filter = filters.create(_is_admin)
 
 def is_admin(user_id: int) -> bool:
     return user_id in ADMINS
- 
+
+
+# -------------------------------------------------------------- premium ---- #
+
+
+def is_premium(user_id: int) -> bool:
+    """Hardcoded premium users (config.PREMIUM_USERS) skip force-sub gating
+    and the promotional sticker — see plugins/helper/force_sub.py and
+    plugins/helper/promo.py."""
+    return user_id in PREMIUM_USERS
+
