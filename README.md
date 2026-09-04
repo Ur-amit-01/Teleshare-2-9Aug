@@ -77,11 +77,22 @@ BOT_TOKEN=
 DB_URL=mongodb://...
 DB_NAME=filestore_bot
 ADMINS=123456 234567
+PREMIUM_USERS=123456 234567  # optional — space-separated ids; skip force-sub + promo sticker
 BACKUP_CHANNEL=-100...      # bot must be admin here
 LOG_CHANNEL=-100...          # optional
 PORT=8080
 START_PIC=                   # optional
 ```
+
+## Premium users & promo sticker
+
+* **Premium users** (`PREMIUM_USERS` env var, space-separated Telegram ids) skip
+  the force-sub gate and never see the promo sticker — see
+  `plugins/helper/filters.py:is_premium()`.
+* **Promo sticker + button** — configurable live via `/setting`: send a sticker
+  to set it, plus an optional button label/URL. It's shown right after the
+  start message and right after every file delivery (unless the recipient is
+  a premium user). See `plugins/helper/promo.py`.
 
 ## Running
 
