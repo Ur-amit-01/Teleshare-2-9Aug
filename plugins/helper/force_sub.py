@@ -5,7 +5,7 @@ bot not admin in the channel, buttons not showing, "request to join" not
 being recognized, etc.) there's exactly one file to open.
 
 Contains:
-  * _channel_join_button -> builds the "➕ Join X" button for one channel
+  * _channel_join_button -> builds the "➕ Join N" button for one channel
   * get_missing_channels -> which force-sub channels a user hasn't joined
   * ensure_subscribed    -> the gate called at the top of /start
   * track_join_request   -> records "request to join" submissions so
@@ -25,13 +25,13 @@ from plugins.helper.filters import is_admin
 logger = logging.getLogger(__name__)
 
 
-async def _channel_join_button(client, channel) -> InlineKeyboardButton:
+async def _channel_join_button(client, channel, index: int) -> InlineKeyboardButton:
     chat = await client.get_chat(channel)
     if chat.username:
         url = f"https://t.me/{chat.username}"
     else:
         url = chat.invite_link or (await client.export_chat_invite_link(chat.id))
-    return InlineKeyboardButton(f"➕ Join {chat.title}", url=url)
+    return InlineKeyboardButton(f"📡 Join {index}", url=url)
 
 
 async def get_missing_channels(client, user_id: int) -> list:
@@ -80,7 +80,10 @@ async def ensure_subscribed(client, message: Message) -> bool:
     if not missing:
         return True
 
-    buttons = [[await _channel_join_button(client, ch)] for ch in missing]
+    buttons = [
+        [await _channel_join_button(client, ch, i)]
+        for i, ch in enumerate(missing, start=1)
+    ]
     payload = message.command[1] if len(message.command) > 1 else ""
     from config import BOT_USERNAME
     resume_url = f"https://t.me/{BOT_USERNAME}?start={payload}" if payload else f"https://t.me/{BOT_USERNAME}?start=start"
@@ -91,17 +94,12 @@ async def ensure_subscribed(client, message: Message) -> bool:
     # assuming the reader already knows the Join → Try Again flow. Formatted
     # with clear visual sections (divider, bold headers, numbered steps) so
     # it reads well as a Telegram message rather than a wall of text.
-    channel_word = "channel" if len(missing) == 1 else "channels"
+    channel_word = "ᴄʜᴀɴɴᴇʟ" if len(missing) == 1 else "ᴄʜᴀɴɴᴇʟs"
     await message.reply_text(
-        "🔐 <b>ACCESS LOCKED</b>\n"
+        "🔐 <b>ᴀᴄᴄᴇss ʟᴏᴄᴋᴇᴅ</b>\n"
         "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n\n"
-        f"<b>To unlock this bot, please join our {channel_word} first 👇</b>\n\n"
-        "📋 <b>Steps to continue:</b>\n"
-        f"　1️⃣ Tap the {channel_word} button below\n"
-        "　2️⃣ Join, then come back here\n"
-        "　3️⃣ Tap <b>🔄 Try Again</b>\n\n"
-        "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
-        "✅ <i>That's it — you're in!</i>",
+        f"ᴅᴜᴇ ᴛᴏ ʜᴇᴀᴠʏ ʟᴏᴀᴅ ᴏɴ ᴛʜɪs ʙᴏᴛ, ᴏɴʟʏ ᴏᴜʀ {channel_word} sᴜʙsᴄʀɪʙᴇʀs ᴄᴀɴ ᴜsᴇ ᴛʜɪs ʙᴏᴛ.\n\n"
+        f"ᴊᴏɪɴ ᴛʜᴇ {channel_word} ᴜsɪɴɢ ᴛʜᴇ ʙᴜᴛᴛᴏɴs ʙᴇʟᴏᴡ, ᴛʜᴇɴ ᴛᴀᴘ <b>🔄 ᴛʀʏ ᴀɢᴀɪɴ</b>.",
         reply_markup=InlineKeyboardMarkup(buttons),
     )
     return False
@@ -118,5 +116,4 @@ async def track_join_request(client, chat_join_request):
     chat_id = chat_join_request.chat.id
     if chat_id in channel_ids or chat_join_request.chat.username in settings.get("force_sub_channels"):
         await db.record_join_request(chat_join_request.from_user.id, chat_id)
-
  
